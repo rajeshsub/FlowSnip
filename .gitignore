@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# VS Code
+.vscode/
+
+# Claude IDE
+.claude/
+
+# Git
+.git/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Other
+*.log
+*.tmp
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
