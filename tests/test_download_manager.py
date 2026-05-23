@@ -77,33 +77,42 @@ def _run_worker(manager, item, ytdl_side_effect):
 
 
 def test_find_js_runtime_node_on_path():
-    with patch(
-        "shutil.which", side_effect=lambda n: "/usr/bin/node" if n == "node" else None
+    with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": ""}),
+        patch(
+            "shutil.which",
+            side_effect=lambda n: "/usr/bin/node" if n == "node" else None,
+        ),
     ):
         result = _find_js_runtime()
-    assert result == "nodejs:/usr/bin/node"
+    assert result == {"node": {"path": "/usr/bin/node"}}
 
 
 def test_find_js_runtime_nodejs_on_path():
-    with patch(
-        "shutil.which",
-        side_effect=lambda n: "/usr/bin/nodejs" if n == "nodejs" else None,
+    with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": ""}),
+        patch(
+            "shutil.which",
+            side_effect=lambda n: "/usr/bin/nodejs" if n == "nodejs" else None,
+        ),
     ):
         result = _find_js_runtime()
-    assert result == "nodejs:/usr/bin/nodejs"
+    assert result == {"node": {"path": "/usr/bin/nodejs"}}
 
 
 def test_find_js_runtime_common_windows_path():
     with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": ""}),
         patch("shutil.which", return_value=None),
         patch("os.path.exists", side_effect=lambda p: "nodejs" in p),
     ):
         result = _find_js_runtime()
-    assert result is not None and result.startswith("nodejs:")
+    assert result is not None and "node" in result
 
 
 def test_find_js_runtime_deno_fallback():
     with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": ""}),
         patch(
             "shutil.which",
             side_effect=lambda n: "/usr/bin/deno" if n == "deno" else None,
@@ -111,11 +120,30 @@ def test_find_js_runtime_deno_fallback():
         patch("os.path.exists", return_value=False),
     ):
         result = _find_js_runtime()
-    assert result == "deno:/usr/bin/deno"
+    assert result == {"deno": {"path": "/usr/bin/deno"}}
 
 
 def test_find_js_runtime_nothing_found():
     with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": ""}),
+        patch("shutil.which", return_value=None),
+        patch("os.path.exists", return_value=False),
+    ):
+        result = _find_js_runtime()
+    assert result is None
+
+
+def test_find_js_runtime_env_var_set(tmp_path):
+    fake_node = tmp_path / "node"
+    fake_node.write_text("")
+    with patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": str(fake_node)}):
+        result = _find_js_runtime()
+    assert result == {"node": {"path": str(fake_node)}}
+
+
+def test_find_js_runtime_env_var_nonexistent():
+    with (
+        patch.dict(os.environ, {"FLOWSNIP_NODE_PATH": "/nonexistent/node"}),
         patch("shutil.which", return_value=None),
         patch("os.path.exists", return_value=False),
     ):
@@ -168,27 +196,14 @@ def test_is_valid_url_empty():
 
 
 # ---------------------------------------------------------------------------
-# DownloadManager init / PATH injection
+# DownloadManager init
 # ---------------------------------------------------------------------------
 
 
-def test_init_adds_nodejs_to_path(test_config, mock_callback):
-    nodejs = r"C:\Program Files\nodejs"
-    original = os.environ.get("PATH", "")
-    # Strip it out first so the injection runs
-    env_without = original.replace(nodejs, "").replace(";;", ";").strip(";")
-    with patch.dict(os.environ, {"PATH": env_without}):
-        mgr = DownloadManager(test_config, mock_callback)
-        assert nodejs in os.environ["PATH"]
-    mgr.stop_downloads()
-
-
-def test_init_skips_path_if_already_present(test_config, mock_callback):
-    nodejs = r"C:\Program Files\nodejs"
-    with patch.dict(os.environ, {"PATH": nodejs + os.pathsep + "other"}):
-        mgr = DownloadManager(test_config, mock_callback)
-        # Should not duplicate
-        assert os.environ["PATH"].count(nodejs) == 1
+def test_init_creates_manager(test_config, mock_callback):
+    mgr = DownloadManager(test_config, mock_callback)
+    assert not mgr.is_running
+    assert not mgr.is_paused
     mgr.stop_downloads()
 
 

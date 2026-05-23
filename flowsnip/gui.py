@@ -6,6 +6,7 @@ queue management, progress tracking, and configuration options.
 """
 
 import sys
+import time
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Dict
@@ -18,10 +19,10 @@ from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
 def show_legal_disclaimer(root):
     """Show legal disclaimer dialog on app startup.
-    
+
     Args:
         root: The root window for the dialog.
-        
+
     If user disagrees, the program will terminate.
     """
     disclaimer_text = (
@@ -35,9 +36,11 @@ def show_legal_disclaimer(root):
         "Do you agree to these terms?"
     )
     result = messagebox.askyesno("Legal Disclaimer - FlowSnip", disclaimer_text)
-    
+
     if not result:
-        messagebox.showinfo("Terminated", "You did not agree to the terms. FlowSnip will now exit.")
+        messagebox.showinfo(
+            "Terminated", "You did not agree to the terms. FlowSnip will now exit."
+        )
         sys.exit(0)
 
 
@@ -175,14 +178,22 @@ class ConfigFrame(ctk.CTkFrame):
 
     def setup_ui(self):
         """Setup the configuration UI."""
-        # Title
         title_label = ctk.CTkLabel(
             self, text="Configuration", font=ctk.CTkFont(size=16, weight="bold")
         )
         title_label.grid(row=0, column=0, columnspan=2, pady=(10, 20))
         row = 1
 
-        # --- YouTube Authentication ---
+        row = self._setup_browser_section(row)
+        row = self._setup_download_section(row)
+        row = self._setup_format_section(row)
+        row = self._setup_appearance_section(row)
+        self._setup_action_buttons(row)
+
+        self.grid_columnconfigure(1, weight=1)
+
+    def _setup_browser_section(self, row: int) -> int:
+        """Add browser cookies dropdown and helper text."""
         ctk.CTkLabel(self, text="Browser Cookies\n(recommended):", justify="left").grid(
             row=row, column=0, sticky="w", padx=10, pady=5
         )
@@ -213,10 +224,10 @@ class ConfigFrame(ctk.CTkFrame):
             font=ctk.CTkFont(size=10),
             text_color=("gray40", "gray60"),
         ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
-        row += 1
+        return row + 1
 
-        # UI settings
-        # Auto-start downloads (after theme selector)
+    def _setup_download_section(self, row: int) -> int:
+        """Add auto-start, parallel slider, and download directory controls."""
         self.auto_start_var = ctk.BooleanVar(
             value=self.config_obj.ui.auto_start_downloads
         )
@@ -231,7 +242,7 @@ class ConfigFrame(ctk.CTkFrame):
             row=row, column=0, columnspan=2, sticky="w", padx=10, pady=5
         )
         row += 1
-        # Create frame for slider and value label
+
         slider_label_frame = ctk.CTkFrame(self)
         slider_label_frame.grid(
             row=row, column=0, columnspan=2, sticky="ew", padx=10, pady=5
@@ -258,7 +269,6 @@ class ConfigFrame(ctk.CTkFrame):
         self.parallel_value_label.pack(side="right", padx=5, pady=5)
         row += 1
 
-        # Download directory
         ctk.CTkLabel(self, text="Download Directory:").grid(
             row=row, column=0, sticky="w", padx=10, pady=5
         )
@@ -272,9 +282,10 @@ class ConfigFrame(ctk.CTkFrame):
             dir_frame, text="Browse", command=self.browse_directory, width=60
         )
         browse_btn.pack(side="right", padx=5)
-        row += 1
+        return row + 1
 
-        # Audio only option
+    def _setup_format_section(self, row: int) -> int:
+        """Add audio-only toggle, video quality, thumbnail, and audio quality controls."""
         self.audio_only_var = ctk.BooleanVar(value=self.config_obj.download.audio_only)
         self.audio_only_checkbox = ctk.CTkCheckBox(
             self,
@@ -287,7 +298,6 @@ class ConfigFrame(ctk.CTkFrame):
         )
         row += 1
 
-        # Video quality
         ctk.CTkLabel(self, text="Video Quality:").grid(
             row=row, column=0, sticky="w", padx=10, pady=5
         )
@@ -316,13 +326,11 @@ class ConfigFrame(ctk.CTkFrame):
             variable=self.quality_var,
         )
         self.quality_combobox.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
-        # Disable video quality if audio only is selected
         self.quality_combobox.configure(
             state="disabled" if self.audio_only_var.get() else "normal"
         )
         row += 1
 
-        # Download thumbnail option
         self.download_thumbnail_var = ctk.BooleanVar(
             value=self.config_obj.ytdl.write_thumbnail
         )
@@ -337,7 +345,6 @@ class ConfigFrame(ctk.CTkFrame):
         )
         row += 1
 
-        # Audio quality controls
         self.audio_quality_var = ctk.StringVar(
             value=self.config_obj.download.audio_quality
         )
@@ -350,9 +357,10 @@ class ConfigFrame(ctk.CTkFrame):
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.audio_quality_row = row
         self.toggle_audio_quality_visibility()
-        row += 1
+        return row + 1
 
-        # Theme selector (restored, only once)
+    def _setup_appearance_section(self, row: int) -> int:
+        """Add theme selector."""
         ctk.CTkLabel(self, text="Theme:").grid(
             row=row, column=0, sticky="w", padx=10, pady=5
         )
@@ -365,9 +373,10 @@ class ConfigFrame(ctk.CTkFrame):
         )
         self.theme_combobox.set(self.config_obj.ui.theme)
         self.theme_combobox.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
-        row += 1
+        return row + 1
 
-        # Save/Load buttons
+    def _setup_action_buttons(self, row: int) -> None:
+        """Add Save Config and Load Config buttons."""
         button_frame = ctk.CTkFrame(self)
         button_frame.grid(
             row=row, column=0, columnspan=2, sticky="ew", padx=10, pady=20
@@ -382,9 +391,6 @@ class ConfigFrame(ctk.CTkFrame):
             button_frame, text="Load Config", command=self.load_config
         )
         load_button.pack(side="right", padx=5)
-
-        # Configure grid weights
-        self.grid_columnconfigure(1, weight=1)
 
     def on_audio_only_toggle(self):
         self.update_audio_only()
@@ -427,7 +433,6 @@ class ConfigFrame(ctk.CTkFrame):
 
     def update_video_quality(self, selected_display_name):
         """Update video quality setting."""
-        # Convert display name back to yt-dlp format
         format_string = self.quality_options.get(
             selected_display_name, "bestvideo+bestaudio/best"
         )
@@ -436,7 +441,6 @@ class ConfigFrame(ctk.CTkFrame):
     def update_audio_only(self):
         """Update audio only setting."""
         self.config_obj.download.audio_only = self.audio_only_var.get()
-        # Toggle audio quality visibility
         self.toggle_audio_quality_visibility()
 
     def update_audio_quality(self, value):
@@ -479,12 +483,10 @@ class ConfigFrame(ctk.CTkFrame):
             )
             if file_path:
                 new_config = Config.load_from_file(file_path)
-                # Update current config
                 self.config_obj.download = new_config.download
                 self.config_obj.ui = new_config.ui
                 self.config_obj.ytdl = new_config.ytdl
 
-                # Update UI elements
                 self.update_ui_from_config()
                 messagebox.showinfo("Success", "Configuration loaded successfully!")
         except Exception as e:
@@ -501,30 +503,27 @@ class ConfigFrame(ctk.CTkFrame):
         self.download_dir_label.configure(
             text=str(self.config_obj.download.download_directory)
         )
-        # Update slider and value label
         self.parallel_slider.set(self.config_obj.download.max_parallel_downloads)
         self.parallel_value_label.configure(
             text=str(self.config_obj.download.max_parallel_downloads)
         )
-        # Update video quality combo box (find display name for format)
         current_format = self.config_obj.download.video_quality
-        current_display = "Best Quality"  # default
+        current_display = "Best Quality"
         for display_name, format_string in self.quality_options.items():
             if format_string == current_format:
                 current_display = display_name
                 break
         self.quality_var.set(current_display)
-        # Update audio settings
         self.audio_only_var.set(self.config_obj.download.audio_only)
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.toggle_audio_quality_visibility()
-        # Update UI settings
         self.auto_start_var.set(self.config_obj.ui.auto_start_downloads)
-        # Update browser cookies dropdown
         self.browser_var.set(self.config_obj.download.cookies_from_browser or "Not set")
 
 
 class FlowSnipGUI:
+    """Main GUI application class."""
+
     def show_section(self, section):
         """Show the selected section in the main content area."""
         self.downloads_scroll.grid_remove()
@@ -536,8 +535,6 @@ class FlowSnipGUI:
             self.config_frame.grid(row=0, column=0, sticky="nsew")
         elif section == "Statistics":
             self.stats_frame.grid(row=0, column=0, sticky="nsew")
-
-    """Main GUI application class."""
 
     def __init__(self, config: Config):
         """Initialize the GUI application."""
@@ -558,32 +555,36 @@ class FlowSnipGUI:
 
     def setup_window(self):
         """Setup the main window."""
-        # Set appearance mode and color theme
         ctk.set_appearance_mode(self.config.ui.theme)
         ctk.set_default_color_theme("blue")
 
-        # Create main window
         self.root = ctk.CTk()
         self.root.title("FlowSnip - Media Downloader")
         self.root.geometry(
             f"{self.config.ui.window_width}x{self.config.ui.window_height}"
         )
-        # Set minimum size
         self.root.minsize(800, 600)
-        # Configure grid weights
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_rowconfigure(2, weight=0)  # Log window row
+        self.root.grid_rowconfigure(2, weight=0)
 
     def setup_ui(self):
         """Setup the user interface."""
-        # Top frame for URL input and controls
+        t0 = time.perf_counter()
+        self._setup_url_bar()
+        self._setup_sidebar()
+        self._setup_downloads_area()
+        self._setup_log_panel()
+        self.update_button_states()
+        print(f"[timing] setup_ui: {time.perf_counter() - t0:.3f}s")
+
+    def _setup_url_bar(self):
+        """Build the top URL input bar with action buttons."""
         top_frame = ctk.CTkFrame(self.root)
         top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         top_frame.grid_columnconfigure(1, weight=1)
         top_frame.grid_columnconfigure(2, weight=0)
 
-        # URL input (multi-line)
         ctk.CTkLabel(top_frame, text="Media URLs:").grid(
             row=0, column=0, padx=10, pady=10, sticky="n"
         )
@@ -604,9 +605,7 @@ class FlowSnipGUI:
             font=ctk.CTkFont(size=12),
             text_color="#888",
         ).grid(row=1, column=1, sticky="w", padx=10, pady=(0, 8))
-        # Add button still triggers add_download
 
-        # Buttons
         button_frame = ctk.CTkFrame(top_frame)
         button_frame.grid(row=0, column=2, padx=10, pady=10)
 
@@ -619,6 +618,7 @@ class FlowSnipGUI:
             button_frame, text="Pause", command=self.pause_downloads
         )
         self.pause_button.pack(side="left", padx=5)
+
         self.stop_button = ctk.CTkButton(
             button_frame, text="Stop", command=self.stop_downloads
         )
@@ -631,34 +631,32 @@ class FlowSnipGUI:
         )
         self.open_folder_button.pack(side="left", padx=5)
 
-        # Main content area with vertical sidebar
+    def _setup_sidebar(self):
+        """Build the left sidebar containing config and statistics panels."""
         main_frame = ctk.CTkFrame(self.root)
         main_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         main_frame.grid_columnconfigure(0, weight=0)
         main_frame.grid_columnconfigure(1, weight=1)
         main_frame.grid_rowconfigure(0, weight=1)
 
-        # Sidebar with three stacked panels using pack
         sidebar = ctk.CTkFrame(main_frame, width=180)
         sidebar.grid(row=0, column=0, sticky="ns", padx=(0, 10), pady=0)
 
-        # Configuration panel (top, narrower)
         self.config_frame = ConfigFrame(sidebar, self.config)
         self.config_frame.pack(fill="x", padx=8, pady=(8, 4))
         self.config_frame.configure(width=90)
 
-        # Statistics panel (bottom, always visible)
         self.stats_frame = ctk.CTkFrame(sidebar, width=160, height=80)
         self.stats_frame.pack(fill="x", padx=8, pady=(4, 8))
         self.setup_stats_tab(self.stats_frame)
 
-        # Main content area (right of sidebar)
         self.content_frame = ctk.CTkFrame(main_frame)
         self.content_frame.grid(row=0, column=1, sticky="nsew")
         self.content_frame.grid_rowconfigure(0, weight=1)
         self.content_frame.grid_columnconfigure(0, weight=1)
 
-        # Downloads scrollable area below buttons (central panel)
+    def _setup_downloads_area(self):
+        """Build the scrollable downloads list."""
         self.downloads_scroll = ctk.CTkScrollableFrame(self.content_frame)
         self.downloads_scroll.grid(
             row=1, column=0, sticky="nsew", padx=10, pady=(0, 10)
@@ -669,7 +667,8 @@ class FlowSnipGUI:
         )
         self.status_label.grid(row=0, column=0, pady=6)
 
-        # Log window at the bottom
+    def _setup_log_panel(self):
+        """Build the activity log panel at the bottom."""
         log_frame = ctk.CTkFrame(self.root)
         log_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
         log_frame.grid_columnconfigure(0, weight=1)
@@ -680,13 +679,9 @@ class FlowSnipGUI:
 
         self.log_textbox = ctk.CTkTextbox(log_frame, height=120, wrap="none")
         self.log_textbox.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
-        self.log_textbox.configure(state="disabled")  # Read-only
+        self.log_textbox.configure(state="disabled")
 
-        # Bind right-click to show context menu
         self.log_textbox.bind("<Button-3>", self.show_log_context_menu)
-
-        # Set initial button states
-        self.update_button_states()
 
     def setup_stats_tab(self, stats_frame):
         """Setup the statistics section."""
@@ -749,7 +744,6 @@ class FlowSnipGUI:
         """Enable start button if there's text in the URL box, even if downloads are in progress."""
         urls_text = self.url_textbox.get("1.0", "end").strip()
         has_urls = urls_text and urls_text != "Enter one video URL per line"
-        # Always enable start button if there are URLs to add
         if has_urls:
             self.start_button.configure(state="normal", text="Start")
 
@@ -757,14 +751,14 @@ class FlowSnipGUI:
         """Add a message to the log window."""
         self.log_textbox.configure(state="normal")
         self.log_textbox.insert("end", message + "\n")
-        self.log_textbox.see("end")  # Auto-scroll to bottom
+        self.log_textbox.see("end")
         self.log_textbox.configure(state="disabled")
 
         # Limit log size to last 1000 lines
         lines = self.log_textbox.get("1.0", "end").count("\n")
         if lines > 1000:
             self.log_textbox.configure(state="normal")
-            self.log_textbox.delete("1.0", "100.0")  # Delete first 100 lines
+            self.log_textbox.delete("1.0", "100.0")
             self.log_textbox.configure(state="disabled")
 
     def show_log_context_menu(self, event):
@@ -794,26 +788,19 @@ class FlowSnipGUI:
 
     def start_downloads(self):
         """Start the download manager and add URLs from textbox if present."""
-        # Get URLs from textbox if present
         urls_text = self.url_textbox.get("1.0", "end").strip()
 
         if urls_text and urls_text != "Enter one video URL per line":
-            # Parse URLs (one per line)
             urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
 
             if urls:
-                # Clear textbox immediately
                 self.url_textbox.delete("1.0", "end")
-
-                # Disable start button while processing
                 self.start_button.configure(state="disabled", text="Adding...")
 
-                # Add downloads in background thread to prevent UI freeze
                 import threading
 
                 def add_urls_async():
                     self.download_manager.add_multiple_downloads(urls)
-                    # Re-enable button on main thread
                     self.root.after(
                         0,
                         lambda: self.start_button.configure(
@@ -823,7 +810,6 @@ class FlowSnipGUI:
 
                 threading.Thread(target=add_urls_async, daemon=True).start()
 
-        # Start downloads if not already running
         if not self.download_manager.is_running:
             self.download_manager.start_downloads()
             self.update_button_states()
@@ -838,18 +824,13 @@ class FlowSnipGUI:
 
     def stop_downloads(self):
         """Stop all downloads."""
-        # Run stop operation in background thread to prevent GUI freeze
         import threading
 
         def stop_async():
             self.download_manager.stop_downloads()
-            # Update button states on main thread when done
             self.root.after(0, self.update_button_states)
 
-        # Immediately disable stop button and show stopping state
         self.stop_button.configure(state="disabled", text="Stopping...")
-
-        # Run stop in background
         threading.Thread(target=stop_async, daemon=True).start()
 
     def open_downloads_folder(self):
@@ -862,9 +843,9 @@ class FlowSnipGUI:
         try:
             if platform.system() == "Windows":
                 subprocess.run(["explorer", str(download_dir)])
-            elif platform.system() == "Darwin":  # macOS
+            elif platform.system() == "Darwin":
                 subprocess.run(["open", str(download_dir)])
-            else:  # Linux and others
+            else:
                 subprocess.run(["xdg-open", str(download_dir)])
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open downloads folder: {str(e)}")
@@ -887,7 +868,6 @@ class FlowSnipGUI:
 
     def progress_callback(self, event_type: str, data):
         """Callback for download progress updates."""
-        # Update UI in main thread
         self.root.after(0, self._update_ui_callback, event_type, data)
 
     def _update_ui_callback(self, event_type: str, data):
@@ -908,7 +888,6 @@ class FlowSnipGUI:
         elif event_type == "log_message":
             self.log_message(data["message"])
 
-        # Update status and button states (only if not a log message to avoid excessive calls)
         if event_type != "log_message":
             self.update_status_display()
             self.update_button_states()
@@ -916,7 +895,6 @@ class FlowSnipGUI:
     def add_progress_frame(self, download_item: DownloadItem):
         """Add a progress frame for a new download."""
         if download_item.id not in self.progress_frames:
-            # Remove "No downloads" label if it exists
             if hasattr(self, "status_label") and self.status_label.winfo_exists():
                 self.status_label.destroy()
 
@@ -925,7 +903,7 @@ class FlowSnipGUI:
             )
             progress_frame.grid(
                 row=len(self.progress_frames), column=0, sticky="ew", padx=5, pady=5
-            )  # C:\Users\rajes\projects\yt-dlp-wrap\flowsnip\gui.py
+            )
             self.progress_frames[download_item.id] = progress_frame
 
     def update_progress_frame(self, download_item: DownloadItem):
@@ -942,11 +920,9 @@ class FlowSnipGUI:
             self.progress_frames[download_id].destroy()
             del self.progress_frames[download_id]
 
-            # Reorder remaining frames
             for i, frame in enumerate(self.progress_frames.values()):
                 frame.grid(row=i, column=0, sticky="ew", padx=5, pady=5)
 
-            # Show "No downloads" if no frames left
             if not self.progress_frames:
                 self.status_label = ctk.CTkLabel(
                     self.downloads_scroll, text="No downloads"
@@ -957,7 +933,6 @@ class FlowSnipGUI:
         """Update the status display."""
         status = self.download_manager.get_queue_status()
 
-        # Update window title
         active_count = status["active_count"]
         if active_count > 0:
             self.root.title(f"FlowSnip - {active_count} downloading")
@@ -980,7 +955,6 @@ class FlowSnipGUI:
         )
         self.stats_labels["total"].configure(text=str(total))
 
-        # Schedule next update
         self.root.after(1000, self.update_stats)
 
     def run(self):
@@ -995,18 +969,14 @@ class FlowSnipGUI:
     def on_closing(self):
         """Handle application closing."""
         try:
-            # Stop downloads (non-blocking)
             self.download_manager.is_running = False
             self.download_manager._stop_event.set()
 
-            # Cancel active downloads quickly
             for download_id in list(self.download_manager.active_downloads.keys()):
                 self.download_manager.cancel_download(download_id)
 
-            # Shutdown executor without waiting
             self.download_manager.executor.shutdown(wait=False)
 
-            # Save window size
             geometry = self.root.geometry()
             if geometry and isinstance(geometry, str) and "x" in geometry:
                 size_part = geometry.split("+")[0]
@@ -1014,7 +984,6 @@ class FlowSnipGUI:
                 self.config.ui.window_width = width
                 self.config.ui.window_height = height
 
-            # Save configuration
             from .config import get_default_config_path
 
             self.config.save_to_file(get_default_config_path())

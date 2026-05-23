@@ -25,22 +25,39 @@ def _find_js_runtime() -> Optional[dict]:
 
     Returns a js_runtimes dict suitable for yt-dlp (e.g. {"node": {"path": "..."}}),
     or None if no supported runtime is found.
+
+    Set FLOWSNIP_NODE_PATH=/path/to/node to override automatic detection.
     """
+    t0 = time.perf_counter()
+
+    # Explicit override via environment variable
+    explicit = os.environ.get("FLOWSNIP_NODE_PATH")
+    if explicit and os.path.isfile(explicit):
+        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
+        return {"node": {"path": explicit}}
+
     # Prefer Node.js — check PATH first, then common Windows install locations.
     node = shutil.which("node") or shutil.which("nodejs")
     if node:
+        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
         return {"node": {"path": node}}
+
     for candidate in [
         r"C:\Program Files\nodejs\node.exe",
         r"C:\Program Files (x86)\nodejs\node.exe",
         os.path.expanduser(r"~\AppData\Roaming\nvm\current\node.exe"),
     ]:
         if os.path.exists(candidate):
+            print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
             return {"node": {"path": candidate}}
+
     # Deno as a fallback
     deno = shutil.which("deno")
     if deno:
+        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
         return {"deno": {"path": deno}}
+
+    print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
     return None
 
 
@@ -100,6 +117,8 @@ class DownloadItem:
 
 
 class DownloadManager:
+    """Manages download operations with queue and parallel processing."""
+
     @staticmethod
     def is_valid_url(url: str) -> bool:
         """Basic URL validation: only check for http(s) scheme, allow all domains."""
@@ -109,50 +128,47 @@ class DownloadManager:
 
     def _extract_title(self, url: str) -> str:
         """Extract video title. Returns '__error__:message' on failure."""
-        # Attempt 1: browser cookies (includes PO token — best for YouTube)
-        if self.config.download.cookies_from_browser:
+        t0 = time.perf_counter()
+        try:
+            # Attempt 1: browser cookies (includes PO token — best for YouTube)
+            if self.config.download.cookies_from_browser:
+                try:
+                    opts: dict[str, Any] = {
+                        "quiet": True,
+                        "cookiesfrombrowser": (
+                            self.config.download.cookies_from_browser,
+                            None,
+                            None,
+                            None,
+                        ),
+                    }
+                    if _JS_RUNTIME:
+                        opts["js_runtimes"] = _JS_RUNTIME
+                    with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+                        info = ydl.extract_info(url, download=False)
+                        return info.get("title", "") or ""
+                except Exception:
+                    pass
+
+            # Attempt 2: default yt-dlp with optional cookie file (works for public videos)
             try:
-                opts: dict[str, Any] = {
-                    "quiet": True,
-                    "cookiesfrombrowser": (
-                        self.config.download.cookies_from_browser,
-                        None,
-                        None,
-                        None,
-                    ),
-                }
+                opts2: dict[str, Any] = {"quiet": True}
                 if _JS_RUNTIME:
-                    opts["js_runtimes"] = _JS_RUNTIME
-                with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+                    opts2["js_runtimes"] = _JS_RUNTIME
+                if self.config.download.cookies_file:
+                    opts2["cookiefile"] = self.config.download.cookies_file
+                with yt_dlp.YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
                     info = ydl.extract_info(url, download=False)
                     return info.get("title", "") or ""
-            except Exception:
-                pass
-
-        # Attempt 2: default yt-dlp with optional cookie file (works for public videos)
-        try:
-            opts2: dict[str, Any] = {"quiet": True}
-            if _JS_RUNTIME:
-                opts2["js_runtimes"] = _JS_RUNTIME
-            if self.config.download.cookies_file:
-                opts2["cookiefile"] = self.config.download.cookies_file
-            with yt_dlp.YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
-                info = ydl.extract_info(url, download=False)
-                return info.get("title", "") or ""
-        except Exception as e:
-            return f"__error__:Failed to fetch info: {e}"
-
-    """Manages download operations with queue and parallel processing."""
+            except Exception as e:
+                return f"__error__:Failed to fetch info: {e}"
+        finally:
+            print(f"[timing] _extract_title: {time.perf_counter() - t0:.3f}s")
 
     def __init__(self, config, progress_callback: Optional[Callable] = None):
         """Initialize the download manager."""
         self.config = config
         self.progress_callback = progress_callback
-
-        # Ensure Node.js is in PATH for yt-dlp's JavaScript challenge solver
-        nodejs_path = r"C:\Program Files\nodejs"
-        if nodejs_path not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = nodejs_path + os.pathsep + os.environ.get("PATH", "")
 
         # Download queues
         self.pending_queue: Queue[DownloadItem] = Queue()
@@ -170,7 +186,7 @@ class DownloadManager:
         self.is_running = False
         self.is_paused = False
         self._stop_event = threading.Event()
-        self._force_shutdown = False  # New flag for immediate shutdown
+        self._force_shutdown = False
 
         # Background thread for queue management
         self.queue_thread: Optional[threading.Thread] = None
@@ -370,83 +386,13 @@ class DownloadManager:
                         if not self._force_shutdown:
                             self._start_download(download_item)
                     except Empty:
-                        # No items in queue, continue
                         pass
 
                 # Quick shutdown check
                 if self._force_shutdown:  # pragma: no cover
                     break  # pragma: no cover
 
-                # Check for completed downloads
-                completed_tasks = []
-                for download_id, future in self.download_tasks.items():
-                    if future.done():
-                        completed_tasks.append(download_id)
-
-                # Process completed tasks
-                for download_id in completed_tasks:
-                    if self._force_shutdown:  # pragma: no cover
-                        break  # pragma: no cover
-
-                    future = self.download_tasks.pop(download_id)
-                    if download_id in self.active_downloads:
-                        download_item = self.active_downloads.pop(download_id)
-
-                        try:
-                            # Get the result (will raise exception if download failed)
-                            future.result()
-                            download_item.status = DownloadStatus.COMPLETED
-                            download_item.completed_at = time.time()
-                            self.completed_downloads.append(download_item)
-
-                            print(f"Download completed: {download_item.title}")
-                            if self.progress_callback:
-                                self.progress_callback(
-                                    "download_completed", download_item
-                                )
-                                self.progress_callback(
-                                    "log_message",
-                                    {
-                                        "message": f"Download completed: {download_item.title}"
-                                    },
-                                )
-
-                        except Exception as e:
-                            # Handle download error
-                            download_item.error_message = str(e)
-                            download_item.retry_count += 1
-
-                            if (
-                                download_item.retry_count
-                                <= self.config.download.retry_attempts
-                            ):
-                                # Retry the download
-                                download_item.status = DownloadStatus.PENDING
-                                download_item.progress = 0.0
-                                self.pending_queue.put(download_item)
-
-                                if self.progress_callback:
-                                    self.progress_callback(
-                                        "download_retrying", download_item
-                                    )
-                            else:
-                                # Max retries reached, move to failed
-                                download_item.status = DownloadStatus.FAILED
-                                self.failed_downloads.append(download_item)
-
-                                print(
-                                    f"Download failed after {download_item.retry_count} attempts: {download_item.title} - {download_item.error_message}"
-                                )
-                                if self.progress_callback:
-                                    self.progress_callback(
-                                        "download_failed", download_item
-                                    )
-                                    self.progress_callback(
-                                        "log_message",
-                                        {
-                                            "message": f"Download failed: {download_item.title} - {download_item.error_message}"
-                                        },
-                                    )
+                self._process_completed_tasks()
 
                 # Sleep to avoid busy waiting, but check for shutdown frequently
                 for _ in range(5):  # Check 5 times per 0.5 seconds
@@ -459,6 +405,68 @@ class DownloadManager:
                 if self._force_shutdown:  # pragma: no cover
                     break  # pragma: no cover
                 time.sleep(1)  # pragma: no cover
+
+    def _process_completed_tasks(self):
+        """Move finished download futures into completed or failed lists."""
+        completed_tasks = [
+            download_id
+            for download_id, future in self.download_tasks.items()
+            if future.done()
+        ]
+
+        for download_id in completed_tasks:
+            if self._force_shutdown:  # pragma: no cover
+                break  # pragma: no cover
+
+            future = self.download_tasks.pop(download_id)
+            if download_id in self.active_downloads:
+                download_item = self.active_downloads.pop(download_id)
+
+                try:
+                    # Get the result (will raise exception if download failed)
+                    future.result()
+                    download_item.status = DownloadStatus.COMPLETED
+                    download_item.completed_at = time.time()
+                    self.completed_downloads.append(download_item)
+
+                    print(f"Download completed: {download_item.title}")
+                    if self.progress_callback:
+                        self.progress_callback("download_completed", download_item)
+                        self.progress_callback(
+                            "log_message",
+                            {"message": f"Download completed: {download_item.title}"},
+                        )
+
+                except Exception as e:
+                    download_item.error_message = str(e)
+                    download_item.retry_count += 1
+
+                    if download_item.retry_count <= self.config.download.retry_attempts:
+                        # Retry the download
+                        download_item.status = DownloadStatus.PENDING
+                        download_item.progress = 0.0
+                        self.pending_queue.put(download_item)
+
+                        if self.progress_callback:
+                            self.progress_callback("download_retrying", download_item)
+                    else:
+                        # Max retries reached, move to failed
+                        download_item.status = DownloadStatus.FAILED
+                        self.failed_downloads.append(download_item)
+
+                        print(
+                            f"Download failed after {download_item.retry_count} attempts: "
+                            f"{download_item.title} - {download_item.error_message}"
+                        )
+                        if self.progress_callback:
+                            self.progress_callback("download_failed", download_item)
+                            self.progress_callback(
+                                "log_message",
+                                {
+                                    "message": f"Download failed: {download_item.title} - "
+                                    f"{download_item.error_message}"
+                                },
+                            )
 
     def _start_download(self, download_item: DownloadItem):
         """Start downloading a single item."""
@@ -478,17 +486,13 @@ class DownloadManager:
                 "log_message", {"message": f"Starting download: {download_item.title}"}
             )
 
-    def _download_worker(self, download_item: DownloadItem):
-        """Worker function that performs the actual download."""
-
-        last_logged_percent = -1  # Track last logged percentage to avoid spam
+    def _make_ydl_logger(self):
+        """Create a yt-dlp compatible logger object."""
+        last_logged_percent = [-1]  # list used as mutable container for closure
 
         def logger(_, msg):
-            """Logger function to capture yt-dlp output (yt-dlp passes self as first arg)."""
-            nonlocal last_logged_percent  # Declare nonlocal at the start
-
+            """Capture yt-dlp log output (yt-dlp passes self as first arg)."""
             if msg:
-                # Strip ANSI escape codes from message
                 import re
 
                 ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -496,10 +500,7 @@ class DownloadManager:
 
                 # Convert speed units in log messages from MiB/s to Mbps
                 if "MiB/s" in clean_msg:
-                    # Extract speed value and convert
                     try:
-                        import re
-
                         speed_match = re.search(r"(\d+\.?\d*)\s*MiB/s", clean_msg)
                         if speed_match:
                             speed_value = float(speed_match.group(1))
@@ -514,8 +515,6 @@ class DownloadManager:
                         clean_msg = clean_msg.replace("MiB/s", "Mbps")
                 elif "KiB/s" in clean_msg:
                     try:
-                        import re
-
                         speed_match = re.search(r"(\d+\.?\d*)\s*KiB/s", clean_msg)
                         if speed_match:
                             speed_value = float(speed_match.group(1))
@@ -529,40 +528,44 @@ class DownloadManager:
                     except Exception:  # pragma: no cover
                         clean_msg = clean_msg.replace("KiB/s", "Kbps")
 
-                # Filter out excessive download progress lines - only log every 5%
+                # Filter out excessive download progress lines — only log every 5%
                 if clean_msg.startswith("[download]") and "%" in clean_msg:
-                    # Extract percentage from message like "[download]   2.7% of ~"
                     try:
                         percent_str = clean_msg.split("%")[0].split()[-1]
                         current_percent = int(float(percent_str))
-                        # Only log every 5% and prevent duplicate 100% logs
                         if (
                             current_percent % 5 == 0
-                            and current_percent != last_logged_percent
+                            and current_percent != last_logged_percent[0]
                         ):
-                            last_logged_percent = current_percent
+                            last_logged_percent[0] = current_percent
                             print(clean_msg)
                             if self.progress_callback:
                                 self.progress_callback(
                                     "log_message", {"message": clean_msg}
                                 )
                     except (ValueError, IndexError):
-                        # If we can't parse it, just log it
                         print(clean_msg)
                         if self.progress_callback:
                             self.progress_callback(
                                 "log_message", {"message": clean_msg}
                             )
                 else:
-                    # Log non-progress messages normally
                     print(clean_msg)
                     if self.progress_callback:
                         self.progress_callback("log_message", {"message": clean_msg})
 
+        log_obj = type(
+            "Logger",
+            (),
+            {"debug": logger, "info": logger, "warning": logger, "error": logger},
+        )()
+        return log_obj
+
+    def _make_progress_hook(self, download_item: DownloadItem):
+        """Create a yt-dlp progress hook for the given download item."""
+
         def progress_hook(d):
-            """Progress hook for yt-dlp."""
             if d["status"] == "downloading":
-                # Calculate progress from fragments if available
                 fragment_index = d.get("fragment_index")
                 fragment_count = d.get("fragment_count")
 
@@ -571,10 +574,8 @@ class DownloadManager:
                     and fragment_count is not None
                     and fragment_count > 0
                 ):
-                    # Use fragment-based progress
                     download_item.progress = (fragment_index / fragment_count) * 100.0
                 else:
-                    # Fall back to percentage string
                     download_item.progress = d.get("_percent_str", "0%").replace(
                         "%", ""
                     )
@@ -583,7 +584,6 @@ class DownloadManager:
                     except (ValueError, TypeError):
                         download_item.progress = 0.0
 
-                # Convert speed from MiB/s to Mbps and clean up formatting
                 import re
 
                 ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -591,7 +591,6 @@ class DownloadManager:
                 speed_str = d.get("_speed_str", "")
                 speed_str = ansi_escape.sub("", speed_str).strip()
 
-                # Convert MiB/s to Mbps (1 MiB/s = 8.388608 Mbps)
                 if speed_str and "MiB/s" in speed_str:
                     try:
                         speed_value = float(speed_str.replace("MiB/s", "").strip())
@@ -627,13 +626,12 @@ class DownloadManager:
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)
 
-        log_obj = type(
-            "Logger",
-            (),
-            {"debug": logger, "info": logger, "warning": logger, "error": logger},
-        )()
+        return progress_hook
 
-        # Base options shared across all strategies
+    def _build_base_opts(
+        self, download_item: DownloadItem, progress_hook, log_obj
+    ) -> dict:
+        """Assemble the base yt-dlp options dict shared across all download strategies."""
         base_opts: dict[str, Any] = {
             "outtmpl": str(
                 self.config.download.download_directory / "%(title)s.%(ext)s"
@@ -650,7 +648,6 @@ class DownloadManager:
         if _JS_RUNTIME:
             base_opts["js_runtimes"] = _JS_RUNTIME
 
-        # Quality / format options
         if self.config.download.audio_only:
             base_opts["format"] = (
                 f"bestaudio[abr<={self.config.download.audio_quality}]/bestaudio/best"
@@ -679,12 +676,22 @@ class DownloadManager:
         if self.config.ytdl.add_metadata:
             base_opts["addmetadata"] = True
 
-        def _run(opts: dict) -> None:
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
-                    ydl.download([download_item.url])
-            except (DownloadError, ExtractorError) as e:
-                raise Exception(f"yt-dlp error: {e}")
+        return base_opts
+
+    def _run_ydl(self, download_item: DownloadItem, opts: dict) -> None:
+        """Execute a single yt-dlp download attempt with the given options."""
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+                ydl.download([download_item.url])
+        except (DownloadError, ExtractorError) as e:
+            raise Exception(f"yt-dlp error: {e}")
+
+    def _download_worker(self, download_item: DownloadItem):
+        """Coordinator that tries each download strategy in priority order."""
+        t0 = time.perf_counter()
+        log_obj = self._make_ydl_logger()
+        progress_hook = self._make_progress_hook(download_item)
+        base_opts = self._build_base_opts(download_item, progress_hook, log_obj)
 
         # Strategy A: browser cookies (highest priority).
         # yt-dlp extracts PO tokens directly from the browser session, bypassing bot checks.
@@ -699,7 +706,14 @@ class DownloadManager:
                 ),
             }
             try:
-                _run(opts_browser)
+                self._run_ydl(download_item, opts_browser)
+                if self.progress_callback:
+                    self.progress_callback(
+                        "log_message",
+                        {
+                            "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
+                        },
+                    )
                 return
             except Exception as e:
                 msg = str(e).lower()
@@ -708,7 +722,8 @@ class DownloadManager:
                         self.progress_callback(
                             "log_message",
                             {
-                                "message": f"Could not extract cookies from {self.config.download.cookies_from_browser} "
+                                "message": f"Could not extract cookies from "
+                                f"{self.config.download.cookies_from_browser} "
                                 "(close the browser and try again). Falling back..."
                             },
                         )
@@ -721,7 +736,14 @@ class DownloadManager:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
         }
         try:
-            _run(opts_public)
+            self._run_ydl(download_item, opts_public)
+            if self.progress_callback:
+                self.progress_callback(
+                    "log_message",
+                    {
+                        "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
+                    },
+                )
             return
         except Exception as e:
             msg = str(e).lower()
@@ -741,7 +763,14 @@ class DownloadManager:
                 {"message": "Auth required — retrying with cookie file..."},
             )
         opts_cookiefile = {**base_opts, "cookiefile": self.config.download.cookies_file}
-        _run(opts_cookiefile)
+        self._run_ydl(download_item, opts_cookiefile)
+        if self.progress_callback:
+            self.progress_callback(
+                "log_message",
+                {
+                    "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
+                },
+            )
 
     def __del__(self):
         """Cleanup when the manager is destroyed."""

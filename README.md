@@ -4,7 +4,7 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ## ⚠️ Legal Disclaimer
 
-**FlowSnip is merely a wrapper around yt-dlp. In other words, it's only just an user interface that calls out to yt-dlp! By using this tool, you acknowledge that you shall ONLY use it for accessing content that you have a legal right to access.** Users are solely responsible for ensuring their use complies with all applicable laws and the terms of service of content platforms. 
+**FlowSnip is a GUI wrapper around yt-dlp. In other words, it's only just an user interface that calls out to yt-dlp! By using this tool, you acknowledge that you shall ONLY use it for accessing content that you have a legal right to access.** Users are solely responsible for ensuring their use complies with all applicable laws and the terms of service of content platforms. 
 
 **Users assume all legal risk** associated with downloading, storing, or using any content from any platform using this tool. See [DISCLAIMER.md](DISCLAIMER.md) for full details.
 
@@ -36,6 +36,7 @@ On startup, FlowSnip displays a legal disclaimer dialog that users must acknowle
 ### Prerequisites
 - Python 3.11 or higher
 - Git
+- **Node.js** *(optional)* — Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. YouTube throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
 
 ### Quick Start (Recommended)
 
@@ -111,6 +112,12 @@ python -m flowsnip.main --quality "best[height<=720]"
 python -m flowsnip.main --audio-only --audio-quality 320
 python -m flowsnip.main --max-parallel 5 --theme light
 ```
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `FLOWSNIP_NODE_PATH` | Full path to the `node` executable (e.g. `/usr/local/bin/node` or `C:\nvm\node.exe`). Used when Node.js is installed to a non-standard location. If not set, FlowSnip searches `PATH` then common install locations automatically. |
 
 ### Code Quality Management
 ```bash
