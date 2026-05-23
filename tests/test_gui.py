@@ -1,0 +1,1277 @@
+"""Tests for flowsnip/gui.py — targets 100% line coverage."""
+
+# conftest.py has already injected customtkinter/tkinter stubs into sys.modules.
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+# Access the stubs that conftest.py injected so helpers can use StringVar/BooleanVar
+_CTK_STUB = sys.modules["customtkinter"]
+
+from flowsnip.config import Config  # noqa: E402
+from flowsnip.download_manager import DownloadItem, DownloadStatus  # noqa: E402
+from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame, show_legal_disclaimer  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_item(
+    status=DownloadStatus.PENDING,
+    progress=0.0,
+    speed=None,
+    eta=None,
+    title="Test Video",
+):
+    item = DownloadItem(url="https://example.com/v=1", title=title)
+    item.status = status
+    item.progress = progress
+    item.speed = speed
+    item.eta = eta
+    return item
+
+
+_SENTINEL = object()
+
+
+def _make_progress_frame(item=None, manager=_SENTINEL):
+    """Instantiate ProgressFrame without calling __init__ (skips widget creation)."""
+    pf = object.__new__(ProgressFrame)
+    pf.download_item = item or _make_item()
+    pf.download_manager = MagicMock() if manager is _SENTINEL else manager
+    pf.progress_bar = MagicMock()
+    pf.status_label = MagicMock()
+    pf.speed_label = MagicMock()
+    pf.eta_label = MagicMock()
+    pf.cancel_button = MagicMock()
+    return pf
+
+
+def _make_config_frame(config=None):
+    """Instantiate ConfigFrame without calling __init__."""
+    cf = object.__new__(ConfigFrame)
+    cf.config_obj = config or Config()
+    cf.browser_var = _CTK_STUB.StringVar(value="Not set")
+    cf.audio_only_var = _CTK_STUB.BooleanVar(value=False)
+    cf.audio_quality_var = _CTK_STUB.StringVar(value="best")
+    cf.audio_quality_row = 10
+    cf.audio_quality_label = MagicMock()
+    cf.audio_quality_combobox = MagicMock()
+    cf.quality_var = _CTK_STUB.StringVar(value="Best Quality")
+    cf.quality_combobox = MagicMock()
+    cf.download_dir_label = MagicMock()
+    cf.parallel_slider = MagicMock()
+    cf.parallel_value_label = MagicMock()
+    cf.auto_start_var = _CTK_STUB.BooleanVar(value=True)
+    cf.quality_options = {
+        "Best Quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+        "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best",
+    }
+    cf.theme_var = _CTK_STUB.StringVar(value="dark")
+    cf.theme_combobox = MagicMock()
+    cf.download_thumbnail_var = _CTK_STUB.BooleanVar(value=False)
+    return cf
+
+
+def _make_gui(config=None):
+    """Instantiate FlowSnipGUI without calling __init__."""
+    g = object.__new__(FlowSnipGUI)
+    g.config = config or Config()
+    g.download_manager = MagicMock()
+    g.download_manager.is_running = False
+    g.download_manager.is_paused = False
+    g.progress_frames = {}
+    g.root = MagicMock()
+    g.root.geometry.return_value = "1200x800+0+0"
+    g.url_textbox = MagicMock()
+    g.url_textbox.get.return_value = ""
+    g.start_button = MagicMock()
+    g.pause_button = MagicMock()
+    g.stop_button = MagicMock()
+    g.open_folder_button = MagicMock()
+    g.status_label = MagicMock()
+    g.status_label.winfo_exists.return_value = True
+    g.downloads_scroll = MagicMock()
+    g.log_textbox = MagicMock()
+    g.log_textbox.get.return_value = ""
+    g.stats_labels = {
+        "active": MagicMock(),
+        "completed": MagicMock(),
+        "failed": MagicMock(),
+        "total": MagicMock(),
+    }
+    g.config_frame = MagicMock()
+    g.stats_frame = MagicMock()
+    return g
+
+
+# ---------------------------------------------------------------------------
+# ProgressFrame.setup_ui (via __init__)
+# ---------------------------------------------------------------------------
+
+
+def test_progress_frame_init_short_title():
+    dm = MagicMock()
+    item = _make_item(title="Short Title")
+    pf = ProgressFrame.__new__(ProgressFrame)
+    pf.download_item = item
+    pf.download_manager = dm
+    pf.setup_ui()
+    assert pf.download_item is item
+
+
+def test_progress_frame_init_long_title():
+    dm = MagicMock()
+    item = _make_item(title="A" * 70)
+    pf = ProgressFrame.__new__(ProgressFrame)
+    pf.download_item = item
+    pf.download_manager = dm
+    pf.setup_ui()
+
+
+# ---------------------------------------------------------------------------
+# ProgressFrame.update_progress
+# ---------------------------------------------------------------------------
+
+
+def test_update_progress_downloading_with_progress():
+    pf = _make_progress_frame()
+    item = _make_item(
+        status=DownloadStatus.DOWNLOADING, progress=50.0, speed="1 Mbps", eta="01:30"
+    )
+    pf.update_progress(item)
+    pf.status_label.configure.assert_called()
+    pf.speed_label.configure.assert_called()
+    pf.eta_label.configure.assert_called()
+
+
+def test_update_progress_downloading_zero_progress():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=0.0)
+    pf.update_progress(item)
+    call_args = pf.status_label.configure.call_args
+    assert "Initializing" in call_args[1]["text"]
+
+
+def test_update_progress_non_downloading_with_progress():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.PAUSED, progress=30.0)
+    pf.update_progress(item)
+    call_args = pf.status_label.configure.call_args
+    assert "30.0" in call_args[1]["text"]
+
+
+def test_update_progress_completed_no_progress_suffix():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.COMPLETED, progress=100.0)
+    pf.update_progress(item)
+    pf.cancel_button.configure.assert_called()
+    call_kw = pf.cancel_button.configure.call_args[1]
+    assert call_kw["text"] == "Remove"
+
+
+def test_update_progress_cancelled_button_remove():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.CANCELLED, progress=0.0)
+    pf.update_progress(item)
+    call_kw = pf.cancel_button.configure.call_args[1]
+    assert call_kw["text"] == "Remove"
+
+
+def test_update_progress_failed_button_retry():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.FAILED, progress=0.0)
+    pf.update_progress(item)
+    call_kw = pf.cancel_button.configure.call_args[1]
+    assert call_kw["text"] == "Retry"
+
+
+def test_update_progress_eta_mm_ss():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="03:45")
+    pf.update_progress(item)
+    call_kw = pf.eta_label.configure.call_args[1]
+    assert "3m" in call_kw["text"] and "45s" in call_kw["text"]
+
+
+def test_update_progress_eta_hh_mm_ss():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="01:02:03")
+    pf.update_progress(item)
+    call_kw = pf.eta_label.configure.call_args[1]
+    assert "1h" in call_kw["text"] and "2m" in call_kw["text"]
+
+
+def test_update_progress_eta_no_colon():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="unknown")
+    pf.update_progress(item)
+    call_kw = pf.eta_label.configure.call_args[1]
+    assert "unknown" in call_kw["text"]
+
+
+def test_update_progress_eta_none():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta=None)
+    pf.update_progress(item)
+    call_kw = pf.eta_label.configure.call_args[1]
+    assert "--" in call_kw["text"]
+
+
+def test_update_progress_non_downloading_zero_progress_no_suffix():
+    pf = _make_progress_frame()
+    item = _make_item(status=DownloadStatus.PENDING, progress=0.0)
+    pf.update_progress(item)
+    call_args = pf.status_label.configure.call_args
+    assert "%" not in call_args[1]["text"]
+
+
+# ---------------------------------------------------------------------------
+# ProgressFrame action methods
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_download_calls_manager():
+    dm = MagicMock()
+    item = _make_item()
+    pf = _make_progress_frame(item=item, manager=dm)
+    pf.cancel_download()
+    dm.cancel_download.assert_called_once_with(item.id)
+
+
+def test_cancel_download_no_manager():
+    pf = _make_progress_frame(manager=None)
+    pf.cancel_download()
+
+
+def test_remove_download_completed():
+    dm = MagicMock()
+    item = _make_item(status=DownloadStatus.COMPLETED)
+    pf = _make_progress_frame(item=item, manager=dm)
+    pf.remove_download()
+    dm.remove_download.assert_called_once_with(item.id, "completed")
+
+
+def test_remove_download_failed():
+    dm = MagicMock()
+    item = _make_item(status=DownloadStatus.FAILED)
+    pf = _make_progress_frame(item=item, manager=dm)
+    pf.remove_download()
+    dm.remove_download.assert_called_once_with(item.id, "failed")
+
+
+def test_remove_download_no_manager():
+    pf = _make_progress_frame(manager=None)
+    pf.remove_download()
+
+
+def test_retry_download_calls_manager():
+    dm = MagicMock()
+    item = _make_item()
+    pf = _make_progress_frame(item=item, manager=dm)
+    pf.retry_download()
+    dm.retry_download.assert_called_once_with(item.id)
+
+
+def test_retry_download_no_manager():
+    pf = _make_progress_frame(manager=None)
+    pf.retry_download()
+
+
+# ---------------------------------------------------------------------------
+# ConfigFrame.__init__
+# ---------------------------------------------------------------------------
+
+
+def test_config_frame_init(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    parent = MagicMock()
+    cf = ConfigFrame(parent, config)
+    assert cf.config_obj is config
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.__init__ / setup_window / setup_ui / setup_stats_tab
+# ---------------------------------------------------------------------------
+
+
+def test_flowsnipgui_init(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    config.ui.auto_start_downloads = True
+    with patch("flowsnip.gui.DownloadManager") as MockDM:
+        mock_dm = MagicMock()
+        mock_dm.is_running = False
+        mock_dm.is_paused = False
+        mock_dm.get_queue_status.return_value = {
+            "active_count": 0,
+            "pending_count": 0,
+            "completed_count": 0,
+            "failed_count": 0,
+        }
+        MockDM.return_value = mock_dm
+        g = FlowSnipGUI(config)
+    mock_dm.start_downloads.assert_called_once()
+    assert g.config is config
+
+
+# ---------------------------------------------------------------------------
+# ConfigFrame.setup_ui (via instantiation — tests quality match logic)
+# ---------------------------------------------------------------------------
+
+
+def test_config_frame_setup_ui_quality_match(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    config.download.video_quality = (
+        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
+        "/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best"
+    )
+    cf = ConfigFrame.__new__(ConfigFrame)
+    cf.config_obj = config
+    cf.setup_ui()
+
+
+def test_config_frame_setup_ui_quality_no_match(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    config.download.video_quality = "unknown/format"
+    cf = ConfigFrame.__new__(ConfigFrame)
+    cf.config_obj = config
+    cf.setup_ui()
+
+
+def test_config_frame_audio_only_shows_quality(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    config.download.audio_only = True
+    cf = ConfigFrame.__new__(ConfigFrame)
+    cf.config_obj = config
+    cf.setup_ui()
+
+
+# ---------------------------------------------------------------------------
+# ConfigFrame methods
+# ---------------------------------------------------------------------------
+
+
+def test_on_audio_only_toggle_enable():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(True)
+    cf.on_audio_only_toggle()
+    cf.quality_combobox.configure.assert_called_with(state="disabled")
+
+
+def test_on_audio_only_toggle_disable():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(False)
+    cf.on_audio_only_toggle()
+    cf.quality_combobox.configure.assert_called_with(state="normal")
+
+
+def test_toggle_audio_quality_visibility_show():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(True)
+    cf.toggle_audio_quality_visibility()
+    cf.audio_quality_label.grid.assert_called()
+    cf.audio_quality_combobox.grid.assert_called()
+
+
+def test_toggle_audio_quality_visibility_hide():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(False)
+    cf.toggle_audio_quality_visibility()
+    cf.audio_quality_label.grid_remove.assert_called()
+    cf.audio_quality_combobox.grid_remove.assert_called()
+
+
+def test_browse_directory_selected():
+    cf = _make_config_frame()
+    with patch("flowsnip.gui.filedialog.askdirectory", return_value="/some/dir"):
+        cf.browse_directory()
+    assert cf.config_obj.download.download_directory == Path("/some/dir")
+    cf.download_dir_label.configure.assert_called()
+
+
+def test_browse_directory_cancelled():
+    cf = _make_config_frame()
+    original = cf.config_obj.download.download_directory
+    with patch("flowsnip.gui.filedialog.askdirectory", return_value=""):
+        cf.browse_directory()
+    assert cf.config_obj.download.download_directory == original
+
+
+def test_update_parallel_downloads():
+    cf = _make_config_frame()
+    cf.update_parallel_downloads(5.0)
+    assert cf.config_obj.download.max_parallel_downloads == 5
+    cf.parallel_value_label.configure.assert_called_with(text="5")
+
+
+def test_update_video_quality_known():
+    cf = _make_config_frame()
+    cf.update_video_quality("1080p")
+    assert "1080" in cf.config_obj.download.video_quality
+
+
+def test_update_video_quality_unknown():
+    cf = _make_config_frame()
+    cf.update_video_quality("UnknownQuality")
+    assert cf.config_obj.download.video_quality == "bestvideo+bestaudio/best"
+
+
+def test_update_audio_only_true():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(True)
+    cf.update_audio_only()
+    assert cf.config_obj.download.audio_only is True
+
+
+def test_update_audio_only_false():
+    cf = _make_config_frame()
+    cf.audio_only_var.set(False)
+    cf.update_audio_only()
+    assert cf.config_obj.download.audio_only is False
+
+
+def test_update_audio_quality():
+    cf = _make_config_frame()
+    cf.update_audio_quality("320")
+    assert cf.config_obj.download.audio_quality == "320"
+
+
+def test_update_download_thumbnail():
+    cf = _make_config_frame()
+    cf.download_thumbnail_var.set(True)
+    cf.update_download_thumbnail()
+    assert cf.config_obj.ytdl.write_thumbnail is True
+
+
+def test_update_theme():
+    cf = _make_config_frame()
+    with patch("flowsnip.gui.ctk.set_appearance_mode"):
+        cf.update_theme("light")
+    assert cf.config_obj.ui.theme == "light"
+
+
+def test_update_auto_start():
+    cf = _make_config_frame()
+    cf.auto_start_var.set(False)
+    cf.update_auto_start()
+    assert cf.config_obj.ui.auto_start_downloads is False
+
+
+def test_save_config_success(temp_dir):
+    cf = _make_config_frame()
+    save_path = str(temp_dir / "saved.json")
+    with (
+        patch("flowsnip.gui.filedialog.asksaveasfilename", return_value=save_path),
+        patch("flowsnip.gui.messagebox.showinfo") as mock_info,
+    ):
+        cf.save_config()
+    mock_info.assert_called_once()
+
+
+def test_save_config_cancelled():
+    cf = _make_config_frame()
+    with (
+        patch("flowsnip.gui.filedialog.asksaveasfilename", return_value=""),
+        patch("flowsnip.gui.messagebox.showinfo") as mock_info,
+    ):
+        cf.save_config()
+    mock_info.assert_not_called()
+
+
+def test_save_config_error(temp_dir):
+    cf = _make_config_frame()
+    with (
+        patch(
+            "flowsnip.gui.filedialog.asksaveasfilename",
+            return_value=str(temp_dir / "out.json"),
+        ),
+        patch("flowsnip.config.Config.save_to_file", side_effect=OSError("boom")),
+        patch("flowsnip.gui.messagebox.showerror") as mock_err,
+    ):
+        cf.save_config()
+    mock_err.assert_called_once()
+
+
+def test_load_config_success(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    save_path = temp_dir / "cfg.json"
+    config.save_to_file(save_path)
+
+    cf = _make_config_frame()
+    with (
+        patch("flowsnip.gui.filedialog.askopenfilename", return_value=str(save_path)),
+        patch("flowsnip.gui.messagebox.showinfo") as mock_info,
+        patch.object(cf, "update_ui_from_config"),
+    ):
+        cf.load_config()
+    mock_info.assert_called_once()
+
+
+def test_load_config_cancelled():
+    cf = _make_config_frame()
+    with (
+        patch("flowsnip.gui.filedialog.askopenfilename", return_value=""),
+        patch("flowsnip.gui.messagebox.showinfo") as mock_info,
+    ):
+        cf.load_config()
+    mock_info.assert_not_called()
+
+
+def test_load_config_error():
+    cf = _make_config_frame()
+    with (
+        patch("flowsnip.gui.filedialog.askopenfilename", return_value="/bad.json"),
+        patch("flowsnip.gui.Config.load_from_file", side_effect=OSError("fail")),
+        patch("flowsnip.gui.messagebox.showerror") as mock_err,
+    ):
+        cf.load_config()
+    mock_err.assert_called_once()
+
+
+def test_update_browser_cookies_not_set():
+    cf = _make_config_frame()
+    cf.update_browser_cookies("Not set")
+    assert cf.config_obj.download.cookies_from_browser is None
+
+
+def test_update_browser_cookies_value():
+    cf = _make_config_frame()
+    cf.update_browser_cookies("chrome")
+    assert cf.config_obj.download.cookies_from_browser == "chrome"
+
+
+def test_update_ui_from_config_quality_match():
+    cf = _make_config_frame()
+    cf.config_obj.download.video_quality = cf.quality_options["1080p"]
+    cf.config_obj.download.audio_only = False
+    cf.update_ui_from_config()
+    assert cf.quality_var.get() == "1080p"
+
+
+def test_update_ui_from_config_quality_no_match():
+    cf = _make_config_frame()
+    cf.config_obj.download.video_quality = "unknown_format"
+    cf.update_ui_from_config()
+    assert cf.quality_var.get() == "Best Quality"
+
+
+def test_update_ui_from_config_browser_none():
+    cf = _make_config_frame()
+    cf.config_obj.download.cookies_from_browser = None
+    cf.update_ui_from_config()
+    assert cf.browser_var.get() == "Not set"
+
+
+def test_update_ui_from_config_browser_set():
+    cf = _make_config_frame()
+    cf.config_obj.download.cookies_from_browser = "firefox"
+    cf.update_ui_from_config()
+    assert cf.browser_var.get() == "firefox"
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.show_section
+# ---------------------------------------------------------------------------
+
+
+def test_show_section_downloads():
+    g = _make_gui()
+    g.show_section("Downloads")
+    g.downloads_scroll.grid.assert_called()
+
+
+def test_show_section_configuration():
+    g = _make_gui()
+    g.show_section("Configuration")
+    g.config_frame.grid.assert_called()
+
+
+def test_show_section_statistics():
+    g = _make_gui()
+    g.show_section("Statistics")
+    g.stats_frame.grid.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI._clear_url_placeholder / _restore_url_placeholder
+# ---------------------------------------------------------------------------
+
+
+def test_clear_url_placeholder_matches():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "Enter one media URL per line (YouTube, etc.)"
+    g._clear_url_placeholder()
+    g.url_textbox.delete.assert_called()
+
+
+def test_clear_url_placeholder_no_match():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "https://youtube.com/watch?v=abc"
+    g._clear_url_placeholder()
+    g.url_textbox.delete.assert_not_called()
+
+
+def test_restore_url_placeholder_empty():
+    g = _make_gui()
+    g.url_textbox.get.return_value = ""
+    g._restore_url_placeholder()
+    g.url_textbox.insert.assert_called()
+
+
+def test_restore_url_placeholder_has_content():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "https://example.com"
+    g._restore_url_placeholder()
+    g.url_textbox.insert.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI._check_start_button_state
+# ---------------------------------------------------------------------------
+
+
+def test_check_start_button_state_with_urls():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "https://example.com"
+    g._check_start_button_state()
+    g.start_button.configure.assert_called_with(state="normal", text="Start")
+
+
+def test_check_start_button_state_placeholder():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "Enter one video URL per line"
+    g._check_start_button_state()
+    g.start_button.configure.assert_not_called()
+
+
+def test_check_start_button_state_empty():
+    g = _make_gui()
+    g.url_textbox.get.return_value = ""
+    g._check_start_button_state()
+    g.start_button.configure.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.add_download
+# ---------------------------------------------------------------------------
+
+
+def test_add_download_empty_url():
+    g = _make_gui()
+    g.url_textbox.get.return_value = ""
+    with patch("flowsnip.gui.messagebox.showwarning") as mock_warn:
+        g.add_download()
+    mock_warn.assert_called_once()
+
+
+def test_add_download_placeholder():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "Enter one video URL per line"
+    with patch("flowsnip.gui.messagebox.showwarning") as mock_warn:
+        g.add_download()
+    mock_warn.assert_called_once()
+
+
+def test_add_download_valid_url_auto_start():
+    g = _make_gui()
+    g.config.ui.auto_start_downloads = True
+    g.download_manager.is_running = False
+    g.url_textbox.get.return_value = "https://youtube.com/watch?v=abc"
+    g.add_download()
+    g.download_manager.add_download.assert_called_once_with(
+        "https://youtube.com/watch?v=abc"
+    )
+    g.download_manager.start_downloads.assert_called_once()
+
+
+def test_add_download_already_running():
+    g = _make_gui()
+    g.config.ui.auto_start_downloads = True
+    g.download_manager.is_running = True
+    g.url_textbox.get.return_value = "https://youtube.com/watch?v=abc"
+    g.add_download()
+    g.download_manager.start_downloads.assert_not_called()
+
+
+def test_add_download_whitespace_only():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "   \n   "
+    with patch("flowsnip.gui.messagebox.showwarning") as mock_warn:
+        g.add_download()
+    mock_warn.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.log_message
+# ---------------------------------------------------------------------------
+
+
+def test_log_message_under_limit():
+    g = _make_gui()
+    g.log_textbox.get.return_value = "line\n" * 500
+    g.log_message("hello")
+    g.log_textbox.configure.assert_called()
+
+
+def test_log_message_over_limit():
+    g = _make_gui()
+    g.log_textbox.get.return_value = "\n" * 1001
+    g.log_message("hello")
+    g.log_textbox.delete.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.show_log_context_menu / copy_log_contents / clear_log
+# ---------------------------------------------------------------------------
+
+
+def test_show_log_context_menu():
+    g = _make_gui()
+    event = MagicMock()
+    event.x_root = 100
+    event.y_root = 200
+    mock_menu = MagicMock()
+    import tkinter
+
+    orig_menu = getattr(tkinter, "Menu", None)
+    tkinter.Menu = MagicMock(return_value=mock_menu)
+    try:
+        g.show_log_context_menu(event)
+    finally:
+        if orig_menu is not None:
+            tkinter.Menu = orig_menu
+        elif hasattr(tkinter, "Menu"):
+            del tkinter.Menu
+
+
+def test_copy_log_contents():
+    g = _make_gui()
+    g.log_textbox.get.return_value = "some log"
+    g.copy_log_contents()
+    g.root.clipboard_clear.assert_called()
+    g.root.clipboard_append.assert_called_with("some log")
+
+
+def test_clear_log():
+    g = _make_gui()
+    g.clear_log()
+    g.log_textbox.delete.assert_called_with("1.0", "end")
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.start_downloads
+# ---------------------------------------------------------------------------
+
+
+def test_start_downloads_with_urls_not_running():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "https://youtube.com/watch?v=abc"
+    g.download_manager.is_running = False
+    import threading as _t
+
+    orig_thread = _t.Thread
+
+    def capture_thread(**kw):
+        t = orig_thread(**kw)
+        t.start()
+        t.join(timeout=2)
+        return MagicMock()  # stub: caller's .start() must not re-start the thread
+
+    with patch("threading.Thread", side_effect=capture_thread):
+        g.start_downloads()
+    g.download_manager.add_multiple_downloads.assert_called_once()
+    g.download_manager.start_downloads.assert_called_once()
+
+
+def test_start_downloads_no_urls_not_running():
+    g = _make_gui()
+    g.url_textbox.get.return_value = ""
+    g.download_manager.is_running = False
+    g.start_downloads()
+    g.download_manager.start_downloads.assert_called_once()
+
+
+def test_start_downloads_already_running():
+    g = _make_gui()
+    g.url_textbox.get.return_value = ""
+    g.download_manager.is_running = True
+    g.start_downloads()
+    g.download_manager.start_downloads.assert_not_called()
+
+
+def test_start_downloads_placeholder_text():
+    g = _make_gui()
+    g.url_textbox.get.return_value = "Enter one video URL per line"
+    g.download_manager.is_running = False
+    g.start_downloads()
+    g.download_manager.add_multiple_downloads.assert_not_called()
+    g.download_manager.start_downloads.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.pause_downloads
+# ---------------------------------------------------------------------------
+
+
+def test_pause_downloads_when_running():
+    g = _make_gui()
+    g.download_manager.is_paused = False
+    g.pause_downloads()
+    g.download_manager.pause_downloads.assert_called_once()
+
+
+def test_pause_downloads_when_paused():
+    g = _make_gui()
+    g.download_manager.is_paused = True
+    g.pause_downloads()
+    g.download_manager.resume_downloads.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.stop_downloads
+# ---------------------------------------------------------------------------
+
+
+def test_stop_downloads():
+    g = _make_gui()
+    import threading as _t
+
+    orig_thread = _t.Thread
+
+    def capture_thread(**kw):
+        t = orig_thread(**kw)
+        t.start()
+        t.join(timeout=2)
+        return MagicMock()  # stub: caller's .start() must not re-start the thread
+
+    with patch("threading.Thread", side_effect=capture_thread):
+        g.stop_downloads()
+    g.download_manager.stop_downloads.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.open_downloads_folder
+# ---------------------------------------------------------------------------
+
+
+def test_open_downloads_folder_windows():
+    g = _make_gui()
+    with (
+        patch("platform.system", return_value="Windows"),
+        patch("subprocess.run") as mock_run,
+    ):
+        g.open_downloads_folder()
+    mock_run.assert_called_once()
+    assert mock_run.call_args[0][0][0] == "explorer"
+
+
+def test_open_downloads_folder_mac():
+    g = _make_gui()
+    with (
+        patch("platform.system", return_value="Darwin"),
+        patch("subprocess.run") as mock_run,
+    ):
+        g.open_downloads_folder()
+    assert mock_run.call_args[0][0][0] == "open"
+
+
+def test_open_downloads_folder_linux():
+    g = _make_gui()
+    with (
+        patch("platform.system", return_value="Linux"),
+        patch("subprocess.run") as mock_run,
+    ):
+        g.open_downloads_folder()
+    assert mock_run.call_args[0][0][0] == "xdg-open"
+
+
+def test_open_downloads_folder_error():
+    g = _make_gui()
+    with (
+        patch("platform.system", return_value="Windows"),
+        patch("subprocess.run", side_effect=OSError("nope")),
+        patch("flowsnip.gui.messagebox.showerror") as mock_err,
+    ):
+        g.open_downloads_folder()
+    mock_err.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.update_button_states
+# ---------------------------------------------------------------------------
+
+
+def test_update_button_states_running_not_paused():
+    g = _make_gui()
+    g.download_manager.is_running = True
+    g.download_manager.is_paused = False
+    g.update_button_states()
+    g.pause_button.configure.assert_called_with(text="Pause")
+
+
+def test_update_button_states_running_paused():
+    g = _make_gui()
+    g.download_manager.is_running = True
+    g.download_manager.is_paused = True
+    g.update_button_states()
+    g.pause_button.configure.assert_called_with(text="Resume")
+
+
+def test_update_button_states_not_running():
+    g = _make_gui()
+    g.download_manager.is_running = False
+    g.update_button_states()
+    g.start_button.configure.assert_called_with(state="normal")
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.progress_callback / _update_ui_callback
+# ---------------------------------------------------------------------------
+
+
+def test_progress_callback_schedules_after():
+    g = _make_gui()
+    g.progress_callback("download_added", MagicMock())
+    g.root.after.assert_called()
+
+
+def test_update_ui_callback_download_added():
+    g = _make_gui()
+    item = _make_item()
+    with (
+        patch.object(g, "add_progress_frame") as mock_add,
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_added", item)
+    mock_add.assert_called_once_with(item)
+
+
+def test_update_ui_callback_download_progress():
+    g = _make_gui()
+    item = _make_item()
+    with (
+        patch.object(g, "update_progress_frame") as mock_upd,
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_progress", item)
+    mock_upd.assert_called_once_with(item)
+
+
+def test_update_ui_callback_download_cancelled():
+    g = _make_gui()
+    item = _make_item()
+    with (
+        patch.object(g, "remove_progress_frame") as mock_rem,
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_cancelled", item)
+    mock_rem.assert_called_once_with(item.id)
+
+
+def test_update_ui_callback_download_removed():
+    g = _make_gui()
+    with (
+        patch.object(g, "remove_progress_frame") as mock_rem,
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_removed", {"id": "abc123"})
+    mock_rem.assert_called_once_with("abc123")
+
+
+def test_update_ui_callback_log_message():
+    g = _make_gui()
+    with (
+        patch.object(g, "log_message") as mock_log,
+        patch.object(g, "update_status_display") as mock_status,
+        patch.object(g, "update_button_states") as mock_btn,
+    ):
+        g._update_ui_callback("log_message", {"message": "hello"})
+    mock_log.assert_called_once_with("hello")
+    mock_status.assert_not_called()
+    mock_btn.assert_not_called()
+
+
+def test_update_ui_callback_other_events():
+    g = _make_gui()
+    item = _make_item()
+    for event in ["download_started", "download_completed", "download_failed"]:
+        with (
+            patch.object(g, "update_progress_frame"),
+            patch.object(g, "update_status_display") as mock_status,
+            patch.object(g, "update_button_states") as mock_btn,
+        ):
+            g._update_ui_callback(event, item)
+        mock_status.assert_called()
+        mock_btn.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.add_progress_frame
+# ---------------------------------------------------------------------------
+
+
+def test_add_progress_frame_new():
+    g = _make_gui()
+    item = _make_item()
+    g.progress_frames = {}
+    g.add_progress_frame(item)
+    assert item.id in g.progress_frames
+
+
+def test_add_progress_frame_duplicate():
+    g = _make_gui()
+    item = _make_item()
+    mock_frame = MagicMock()
+    g.progress_frames = {item.id: mock_frame}
+    g.add_progress_frame(item)
+    assert g.progress_frames[item.id] is mock_frame
+
+
+def test_add_progress_frame_no_status_label():
+    g = _make_gui()
+    item = _make_item()
+    del g.status_label
+    g.add_progress_frame(item)
+    assert item.id in g.progress_frames
+
+
+def test_add_progress_frame_status_label_gone():
+    g = _make_gui()
+    item = _make_item()
+    g.status_label.winfo_exists.return_value = False
+    g.add_progress_frame(item)
+    assert item.id in g.progress_frames
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.update_progress_frame
+# ---------------------------------------------------------------------------
+
+
+def test_update_progress_frame_exists():
+    g = _make_gui()
+    item = _make_item()
+    mock_frame = MagicMock()
+    g.progress_frames = {item.id: mock_frame}
+    g.update_progress_frame(item)
+    mock_frame.update_progress.assert_called_once_with(item)
+
+
+def test_update_progress_frame_not_found():
+    g = _make_gui()
+    item = _make_item()
+    g.progress_frames = {}
+    g.update_progress_frame(item)
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.remove_progress_frame
+# ---------------------------------------------------------------------------
+
+
+def test_remove_progress_frame_found_no_remaining():
+    g = _make_gui()
+    item = _make_item()
+    mock_frame = MagicMock()
+    g.progress_frames = {item.id: mock_frame}
+    g.remove_progress_frame(item.id)
+    mock_frame.destroy.assert_called_once()
+    assert item.id not in g.progress_frames
+    assert hasattr(g, "status_label")
+
+
+def test_remove_progress_frame_found_remaining():
+    g = _make_gui()
+    item1 = _make_item()
+    item2 = _make_item()
+    item2.id = "other-id"
+    mock1 = MagicMock()
+    mock2 = MagicMock()
+    g.progress_frames = {item1.id: mock1, item2.id: mock2}
+    g.remove_progress_frame(item1.id)
+    mock1.destroy.assert_called_once()
+    assert item1.id not in g.progress_frames
+    mock2.grid.assert_called()
+
+
+def test_remove_progress_frame_not_found():
+    g = _make_gui()
+    g.progress_frames = {}
+    g.remove_progress_frame("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.update_status_display
+# ---------------------------------------------------------------------------
+
+
+def test_update_status_display_active():
+    g = _make_gui()
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 2,
+        "pending_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+    }
+    g.update_status_display()
+    g.root.title.assert_called_with("FlowSnip - 2 downloading")
+
+
+def test_update_status_display_idle():
+    g = _make_gui()
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 0,
+        "pending_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+    }
+    g.update_status_display()
+    g.root.title.assert_called_with("FlowSnip - Media Downloader")
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.update_stats
+# ---------------------------------------------------------------------------
+
+
+def test_update_stats():
+    g = _make_gui()
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 1,
+        "pending_count": 2,
+        "completed_count": 3,
+        "failed_count": 4,
+    }
+    g.update_stats()
+    g.stats_labels["active"].configure.assert_called_with(text="1")
+    g.stats_labels["completed"].configure.assert_called_with(text="3")
+    g.stats_labels["failed"].configure.assert_called_with(text="4")
+    g.stats_labels["total"].configure.assert_called_with(text="10")
+    g.root.after.assert_called_with(1000, g.update_stats)
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.run
+# ---------------------------------------------------------------------------
+
+
+def test_run_normal():
+    g = _make_gui()
+    g.run()
+    g.root.protocol.assert_called()
+    g.root.mainloop.assert_called()
+
+
+def test_run_exception():
+    g = _make_gui()
+    g.root.mainloop.side_effect = RuntimeError("crash")
+    with patch.object(g, "cleanup") as mock_cleanup:
+        g.run()
+    mock_cleanup.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.on_closing
+# ---------------------------------------------------------------------------
+
+
+def test_on_closing_normal():
+    g = _make_gui()
+    g.root.geometry.return_value = "1000x700+50+50"
+    g.download_manager.active_downloads = {}
+    g.on_closing()
+    g.root.destroy.assert_called_once()
+    assert g.config.ui.window_width == 1000
+    assert g.config.ui.window_height == 700
+
+
+def test_on_closing_geometry_no_x():
+    g = _make_gui()
+    g.root.geometry.return_value = None
+    g.download_manager.active_downloads = {}
+    g.on_closing()
+    g.root.destroy.assert_called_once()
+
+
+def test_on_closing_exception_in_body():
+    g = _make_gui()
+    g.download_manager.active_downloads = {"id1": MagicMock()}
+    g.download_manager.cancel_download.side_effect = RuntimeError("oops")
+    g.on_closing()
+    g.root.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI.cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_with_manager():
+    g = _make_gui()
+    g.cleanup()
+    g.download_manager.stop_downloads.assert_called_once()
+
+
+def test_cleanup_no_manager():
+    g = _make_gui()
+    del g.download_manager
+    g.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# show_legal_disclaimer
+# ---------------------------------------------------------------------------
+
+
+def test_show_legal_disclaimer_agree():
+    """Test that the function returns normally when user agrees."""
+    root = MagicMock()
+    # Access the messagebox stub that conftest.py injected
+    messagebox_stub = sys.modules["tkinter.messagebox"]
+    messagebox_stub.askyesno.return_value = True
+    show_legal_disclaimer(root)
+    messagebox_stub.askyesno.assert_called_once()
+    # Reset for other tests
+    messagebox_stub.askyesno.reset_mock()
+
+
+def test_show_legal_disclaimer_disagree():
+    """Test that the function calls sys.exit(0) when user disagrees."""
+    root = MagicMock()
+    messagebox_stub = sys.modules["tkinter.messagebox"]
+    messagebox_stub.askyesno.return_value = False
+    with patch("flowsnip.gui.sys.exit") as mock_exit:
+        show_legal_disclaimer(root)
+        mock_exit.assert_called_once_with(0)
+    messagebox_stub.showinfo.assert_called_once()
+    # Reset for other tests
+    messagebox_stub.askyesno.reset_mock()
+    messagebox_stub.showinfo.reset_mock()
+
+
+def test_show_legal_disclaimer_shows_correct_message():
+    """Test that the disclaimer message contains required text."""
+    root = MagicMock()
+    messagebox_stub = sys.modules["tkinter.messagebox"]
+    messagebox_stub.askyesno.return_value = True
+    show_legal_disclaimer(root)
+    # Check that askyesno was called with the disclaimer text
+    call_args = messagebox_stub.askyesno.call_args
+    assert call_args is not None
+    message = call_args[0][1]  # Second argument is the message
+    assert "Legal Disclaimer" in call_args[0][0]  # First argument is title
+    assert "You are solely responsible" in message
+    assert "Do you agree to these terms?" in message
+    # Reset for other tests
+    messagebox_stub.askyesno.reset_mock()
