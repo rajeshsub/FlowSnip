@@ -99,6 +99,15 @@ def _inject_gui_stubs():
         def count(self, *a):
             return 0
 
+        def grab_set(self):
+            pass
+
+        def wait_window(self):
+            pass
+
+        def resizable(self, *a, **kw):
+            pass
+
     class CTkFrame(_Base):
         pass
 
@@ -127,6 +136,9 @@ def _inject_gui_stubs():
         pass
 
     class CTk(_Base):
+        pass
+
+    class CTkToplevel(_Base):
         pass
 
     class StringVar:
@@ -163,6 +175,7 @@ def _inject_gui_stubs():
     ctk.CTkScrollableFrame = CTkScrollableFrame
     ctk.CTkTextbox = CTkTextbox
     ctk.CTk = CTk
+    ctk.CTkToplevel = CTkToplevel
     ctk.StringVar = StringVar
     ctk.BooleanVar = BooleanVar
     ctk.CTkFont = CTkFont

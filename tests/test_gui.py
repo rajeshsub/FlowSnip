@@ -10,12 +10,7 @@ _CTK_STUB = sys.modules["customtkinter"]
 
 from flowsnip.config import Config  # noqa: E402
 from flowsnip.download_manager import DownloadItem, DownloadStatus  # noqa: E402
-from flowsnip.gui import (  # noqa: E402
-    ConfigFrame,
-    FlowSnipGUI,
-    ProgressFrame,
-    show_legal_disclaimer,
-)
+from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,6 +103,8 @@ def _make_gui(config=None):
     }
     g.config_frame = MagicMock()
     g.stats_frame = MagicMock()
+    g._last_ui_update = {}
+    g._log_line_count = 0
     return g
 
 
@@ -300,6 +297,78 @@ def test_config_frame_init(temp_dir):
 # ---------------------------------------------------------------------------
 # FlowSnipGUI.__init__ / setup_window / setup_ui / setup_stats_tab
 # ---------------------------------------------------------------------------
+
+
+def test_finish_ui_setup(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    g = _make_gui(config=config)
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 0,
+        "pending_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+    }
+    g._finish_ui_setup()
+    g.start_button.configure.assert_called()  # update_button_states ran
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI._show_disclaimer_modal
+# ---------------------------------------------------------------------------
+
+
+def test_show_disclaimer_modal_accept():
+    g = _make_gui()
+    buttons = {}
+
+    def capture_button(*args, **kw):
+        btn = MagicMock()
+        if kw.get("text") == "I Agree":
+            buttons["accept"] = kw.get("command")
+        return btn
+
+    mock_modal = MagicMock()
+
+    def do_accept():
+        if "accept" in buttons:
+            buttons["accept"]()
+
+    mock_modal.wait_window.side_effect = do_accept
+    with (
+        patch("flowsnip.gui.ctk.CTkToplevel", return_value=mock_modal),
+        patch("flowsnip.gui.ctk.CTkButton", side_effect=capture_button),
+        patch("flowsnip.gui.sys.exit") as mock_exit,
+    ):
+        g._show_disclaimer_modal()
+    mock_exit.assert_not_called()
+
+
+def test_show_disclaimer_modal_decline():
+    g = _make_gui()
+    buttons = {}
+
+    def capture_button(*args, **kw):
+        btn = MagicMock()
+        if kw.get("text") == "Decline":
+            buttons["decline"] = kw.get("command")
+        return btn
+
+    mock_modal = MagicMock()
+
+    def do_decline():
+        if "decline" in buttons:
+            buttons["decline"]()
+
+    mock_modal.wait_window.side_effect = do_decline
+    with (
+        patch("flowsnip.gui.ctk.CTkToplevel", return_value=mock_modal),
+        patch("flowsnip.gui.ctk.CTkButton", side_effect=capture_button),
+        patch("flowsnip.gui.sys.exit") as mock_exit,
+        patch("flowsnip.gui.messagebox.showinfo"),
+    ):
+        g._show_disclaimer_modal()
+    mock_exit.assert_called_once_with(0)
 
 
 def test_flowsnipgui_init(temp_dir):
@@ -727,7 +796,7 @@ def test_log_message_under_limit():
 
 def test_log_message_over_limit():
     g = _make_gui()
-    g.log_textbox.get.return_value = "\n" * 1001
+    g._log_line_count = 1001
     g.log_message("hello")
     g.log_textbox.delete.assert_called()
 
@@ -947,6 +1016,27 @@ def test_progress_callback_schedules_after():
     g.root.after.assert_called()
 
 
+def test_progress_callback_throttled():
+    g = _make_gui()
+    item = _make_item()
+    g._last_ui_update = {item.id: 0.95}  # 1.0 - 0.95 = 0.05 s < 0.1 s threshold
+    g.root.after.reset_mock()
+    with patch("flowsnip.gui.time.monotonic", return_value=1.0):
+        g.progress_callback("download_progress", item)
+    g.root.after.assert_not_called()
+
+
+def test_progress_callback_not_throttled_stale():
+    g = _make_gui()
+    item = _make_item()
+    g._last_ui_update = {item.id: 0.5}  # 1.0 - 0.5 = 0.5 s > 0.1 s threshold
+    g.root.after.reset_mock()
+    with patch("flowsnip.gui.time.monotonic", return_value=1.0):
+        g.progress_callback("download_progress", item)
+    g.root.after.assert_called()
+    assert g._last_ui_update[item.id] == 1.0
+
+
 def test_update_ui_callback_download_added():
     g = _make_gui()
     item = _make_item()
@@ -1163,7 +1253,19 @@ def test_update_stats():
     g.stats_labels["completed"].configure.assert_called_with(text="3")
     g.stats_labels["failed"].configure.assert_called_with(text="4")
     g.stats_labels["total"].configure.assert_called_with(text="10")
-    g.root.after.assert_called_with(1000, g.update_stats)
+    g.root.after.assert_called_with(1000, g.update_stats)  # active → 1 s
+
+
+def test_update_stats_idle():
+    g = _make_gui()
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 0,
+        "pending_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+    }
+    g.update_stats()
+    g.root.after.assert_called_with(5000, g.update_stats)  # idle → 5 s
 
 
 # ---------------------------------------------------------------------------
@@ -1232,52 +1334,3 @@ def test_cleanup_no_manager():
     g = _make_gui()
     del g.download_manager
     g.cleanup()
-
-
-# ---------------------------------------------------------------------------
-# show_legal_disclaimer
-# ---------------------------------------------------------------------------
-
-
-def test_show_legal_disclaimer_agree():
-    """Test that the function returns normally when user agrees."""
-    root = MagicMock()
-    # Access the messagebox stub that conftest.py injected
-    messagebox_stub = sys.modules["tkinter.messagebox"]
-    messagebox_stub.askyesno.reset_mock()
-    messagebox_stub.askyesno.return_value = True
-    show_legal_disclaimer(root)
-    messagebox_stub.askyesno.assert_called_once()
-    # Reset for other tests
-    messagebox_stub.askyesno.reset_mock()
-
-
-def test_show_legal_disclaimer_disagree():
-    """Test that the function calls sys.exit(0) when user disagrees."""
-    root = MagicMock()
-    messagebox_stub = sys.modules["tkinter.messagebox"]
-    messagebox_stub.askyesno.return_value = False
-    with patch("flowsnip.gui.sys.exit") as mock_exit:
-        show_legal_disclaimer(root)
-        mock_exit.assert_called_once_with(0)
-    messagebox_stub.showinfo.assert_called_once()
-    # Reset for other tests
-    messagebox_stub.askyesno.reset_mock()
-    messagebox_stub.showinfo.reset_mock()
-
-
-def test_show_legal_disclaimer_shows_correct_message():
-    """Test that the disclaimer message contains required text."""
-    root = MagicMock()
-    messagebox_stub = sys.modules["tkinter.messagebox"]
-    messagebox_stub.askyesno.return_value = True
-    show_legal_disclaimer(root)
-    # Check that askyesno was called with the disclaimer text
-    call_args = messagebox_stub.askyesno.call_args
-    assert call_args is not None
-    message = call_args[0][1]  # Second argument is the message
-    assert "Legal Disclaimer" in call_args[0][0]  # First argument is title
-    assert "You are solely responsible" in message
-    assert "Do you agree to these terms?" in message
-    # Reset for other tests
-    messagebox_stub.askyesno.reset_mock()

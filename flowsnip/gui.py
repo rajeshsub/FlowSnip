@@ -17,33 +17,6 @@ from .config import Config
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
 
-def show_legal_disclaimer(root):
-    """Show legal disclaimer dialog on app startup.
-
-    Args:
-        root: The root window for the dialog.
-
-    If user disagrees, the program will terminate.
-    """
-    disclaimer_text = (
-        "Legal Disclaimer\n\n"
-        "FlowSnip is a tool for accessing content you own or have a legal right to access.\n\n"
-        "You are solely responsible for:\n"
-        "• Ensuring compliance with platform terms of service\n"
-        "• Respecting copyright and intellectual property laws\n"
-        "Maintainers assume NO LIABILITY for legal violations or misuse.\n\n"
-        "For full details, see DISCLAIMER.md in the project repository.\n\n"
-        "Do you agree to these terms?"
-    )
-    result = messagebox.askyesno("Legal Disclaimer - FlowSnip", disclaimer_text)
-
-    if not result:
-        messagebox.showinfo(
-            "Terminated", "You did not agree to the terms. FlowSnip will now exit."
-        )
-        sys.exit(0)
-
-
 class ProgressFrame(ctk.CTkFrame):
     """Frame for displaying download progress."""
 
@@ -541,13 +514,15 @@ class FlowSnipGUI:
         self.config = config
         self.download_manager = DownloadManager(config, self.progress_callback)
         self.progress_frames: Dict[str, ProgressFrame] = {}
+        self._last_ui_update: Dict[str, float] = {}
+        self._log_line_count = 0
 
         # Setup the main window
         self.setup_window()
         self.setup_ui()
 
-        # Show legal disclaimer on startup
-        show_legal_disclaimer(self.root)
+        # Show legal disclaimer after the window has rendered
+        self.root.after(150, self._show_disclaimer_modal)
 
         # Start download manager if auto-start is enabled
         if self.config.ui.auto_start_downloads:
@@ -568,15 +543,66 @@ class FlowSnipGUI:
         self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_rowconfigure(2, weight=0)
 
+    def _show_disclaimer_modal(self):
+        """Show the legal disclaimer as a blocking modal after the window renders."""
+        disclaimer_text = (
+            "Legal Disclaimer\n\n"
+            "FlowSnip is a tool for accessing content you own or have a legal right to access.\n\n"
+            "You are solely responsible for:\n"
+            "• Ensuring compliance with platform terms of service\n"
+            "• Respecting copyright and intellectual property laws\n"
+            "Maintainers assume NO LIABILITY for legal violations or misuse.\n\n"
+            "For full details, see DISCLAIMER.md in the project repository."
+        )
+        modal = ctk.CTkToplevel(self.root)
+        modal.title("Legal Disclaimer - FlowSnip")
+        modal.resizable(False, False)
+        modal.grab_set()
+
+        ctk.CTkLabel(modal, text=disclaimer_text, wraplength=400, justify="left").pack(
+            padx=20, pady=(20, 10)
+        )
+
+        accepted = [False]
+
+        def on_accept():
+            accepted[0] = True
+            modal.destroy()
+
+        def on_decline():
+            modal.destroy()
+
+        btn_frame = ctk.CTkFrame(modal)
+        btn_frame.pack(pady=(10, 20))
+        ctk.CTkButton(btn_frame, text="I Agree", command=on_accept).pack(
+            side="left", padx=10
+        )
+        ctk.CTkButton(btn_frame, text="Decline", command=on_decline).pack(
+            side="left", padx=10
+        )
+        modal.wait_window()
+
+        if not accepted[0]:
+            messagebox.showinfo(
+                "Terminated", "You did not agree to the terms. FlowSnip will now exit."
+            )
+            sys.exit(0)
+
     def setup_ui(self):
-        """Setup the user interface."""
+        """Setup the user interface — URL bar first, rest deferred."""
         t0 = time.perf_counter()
         self._setup_url_bar()
+        self.root.after(0, self._finish_ui_setup)
+        print(f"[timing] setup_ui initial: {time.perf_counter() - t0:.3f}s")
+
+    def _finish_ui_setup(self):
+        """Complete UI setup scheduled after the initial frame renders."""
+        t0 = time.perf_counter()
         self._setup_sidebar()
         self._setup_downloads_area()
         self._setup_log_panel()
         self.update_button_states()
-        print(f"[timing] setup_ui: {time.perf_counter() - t0:.3f}s")
+        print(f"[timing] setup_ui complete: {time.perf_counter() - t0:.3f}s")
 
     def _setup_url_bar(self):
         """Build the top URL input bar with action buttons."""
@@ -753,13 +779,12 @@ class FlowSnipGUI:
         self.log_textbox.insert("end", message + "\n")
         self.log_textbox.see("end")
         self.log_textbox.configure(state="disabled")
-
-        # Limit log size to last 1000 lines
-        lines = self.log_textbox.get("1.0", "end").count("\n")
-        if lines > 1000:
+        self._log_line_count += 1
+        if self._log_line_count > 1000:
             self.log_textbox.configure(state="normal")
             self.log_textbox.delete("1.0", "100.0")
             self.log_textbox.configure(state="disabled")
+            self._log_line_count -= 100
 
     def show_log_context_menu(self, event):
         """Show context menu for the activity log."""
@@ -868,6 +893,12 @@ class FlowSnipGUI:
 
     def progress_callback(self, event_type: str, data):
         """Callback for download progress updates."""
+        if event_type == "download_progress":
+            now = time.monotonic()
+            item_id = data.id
+            if now - self._last_ui_update.get(item_id, 0) < 0.1:
+                return
+            self._last_ui_update[item_id] = now
         self.root.after(0, self._update_ui_callback, event_type, data)
 
     def _update_ui_callback(self, event_type: str, data):
@@ -955,7 +986,8 @@ class FlowSnipGUI:
         )
         self.stats_labels["total"].configure(text=str(total))
 
-        self.root.after(1000, self.update_stats)
+        interval = 1000 if status["active_count"] > 0 else 5000
+        self.root.after(interval, self.update_stats)
 
     def run(self):
         """Start the GUI application."""

@@ -8,10 +8,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from flowsnip.download_manager import (
+    _UNSET,
+    MAX_HISTORY,
     DownloadItem,
     DownloadManager,
     DownloadStatus,
     _find_js_runtime,
+    _get_js_runtime,
+    _get_yt_dlp,
 )
 
 # ---------------------------------------------------------------------------
@@ -66,7 +70,7 @@ def _make_ytdl(
 def _run_worker(manager, item, ytdl_side_effect):
     """Patch yt_dlp and run _download_worker; return captured opts."""
     factory = ytdl_side_effect
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         manager._download_worker(item)
     return factory.captured.get("opts", {})
 
@@ -215,7 +219,7 @@ def test_init_creates_manager(test_config, mock_callback):
 def test_extract_title_with_browser_cookies_success(download_manager):
     download_manager.config.download.cookies_from_browser = "chrome"
     factory = _make_ytdl(title="My Video")
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result == "My Video"
     download_manager.config.download.cookies_from_browser = None
@@ -236,7 +240,7 @@ def test_extract_title_with_browser_cookies_fail_falls_through(download_manager)
             instance.extract_info = MagicMock(return_value={"title": "Fallback"})
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result == "Fallback"
     download_manager.config.download.cookies_from_browser = None
@@ -244,7 +248,7 @@ def test_extract_title_with_browser_cookies_fail_falls_through(download_manager)
 
 def test_extract_title_no_cookies_success(download_manager):
     factory = _make_ytdl(title="Public Video")
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result == "Public Video"
 
@@ -252,7 +256,7 @@ def test_extract_title_no_cookies_success(download_manager):
 def test_extract_title_with_cookie_file(download_manager):
     download_manager.config.download.cookies_file = "/tmp/cookies.txt"
     factory = _make_ytdl(title="Auth Video")
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result == "Auth Video"
     assert factory.captured["opts"].get("cookiefile") == "/tmp/cookies.txt"
@@ -267,15 +271,15 @@ def test_extract_title_all_fail(download_manager):
         instance.extract_info = MagicMock(side_effect=Exception("network error"))
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result.startswith("__error__:")
 
 
 def test_extract_title_no_js_runtime(download_manager):
-    with patch("flowsnip.download_manager._JS_RUNTIME", None):
+    with patch("flowsnip.download_manager._get_js_runtime", return_value=None):
         factory = _make_ytdl(title="Video")
-        with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+        with patch("yt_dlp.YoutubeDL", side_effect=factory):
             result = download_manager._extract_title("https://youtube.com/watch?v=test")
     assert result == "Video"
     assert "js_runtimes" not in factory.captured.get("opts", {})
@@ -296,7 +300,7 @@ def test_add_download_invalid_url(download_manager, mock_callback):
 
 def test_add_download_valid_url(download_manager):
     factory = _make_ytdl(title="My Video")
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager.add_download(
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         )
@@ -306,7 +310,7 @@ def test_add_download_valid_url(download_manager):
 
 def test_add_download_title_error_uses_url_fragment(download_manager):
     factory = _make_ytdl(raise_on_extract=Exception("fail"))
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = download_manager.add_download("https://www.youtube.com/watch?v=ABC123")
     assert result != ""
     item = download_manager.pending_queue.get_nowait()
@@ -316,7 +320,7 @@ def test_add_download_title_error_uses_url_fragment(download_manager):
 def test_add_download_no_callback(test_config):
     mgr = DownloadManager(test_config, None)
     factory = _make_ytdl(title="Video")
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         result = mgr.add_download("https://www.youtube.com/watch?v=test")
     assert result != ""
     mgr.stop_downloads()
@@ -329,7 +333,7 @@ def test_add_multiple_downloads(download_manager):
         "not-valid",
         "https://www.youtube.com/watch?v=BBB",
     ]
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         ids = download_manager.add_multiple_downloads(urls)
     assert len(ids) == 2  # invalid URL is skipped
 
@@ -510,7 +514,7 @@ def test_worker_strategy_b_success(download_manager, sample_item):
 
 
 def test_worker_strategy_b_no_js_runtime(download_manager, sample_item):
-    with patch("flowsnip.download_manager._JS_RUNTIME", None):
+    with patch("flowsnip.download_manager._get_js_runtime", return_value=None):
         factory = _make_ytdl()
         opts = _run_worker(download_manager, sample_item, factory)
     assert "js_runtimes" not in opts
@@ -543,7 +547,7 @@ def test_worker_strategy_a_cookie_db_error_falls_through(
             instance.download = MagicMock()
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
 
     mock_callback.assert_any_call("log_message", mock_callback.call_args_list[-1][0][1])
@@ -565,7 +569,7 @@ def test_worker_strategy_a_locked_error_falls_through(download_manager, sample_i
             instance.download = MagicMock()
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
     download_manager.config.download.cookies_from_browser = None
 
@@ -588,7 +592,7 @@ def test_worker_strategy_a_auth_error_falls_through(download_manager, sample_ite
             instance.download = MagicMock()
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
     download_manager.config.download.cookies_from_browser = None
 
@@ -607,7 +611,7 @@ def test_worker_strategy_a_other_error_raises(download_manager, sample_item):
         )
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         with pytest.raises(Exception, match="yt-dlp error"):
             download_manager._download_worker(sample_item)
     download_manager.config.download.cookies_from_browser = None
@@ -627,7 +631,7 @@ def test_worker_strategy_b_auth_error_reaches_c_no_cookie_file(
         )
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         with pytest.raises(Exception, match="login"):
             download_manager._download_worker(sample_item)
 
@@ -642,7 +646,7 @@ def test_worker_strategy_b_other_error_raises(download_manager, sample_item):
         instance.download = MagicMock(side_effect=DownloadError("network timeout xyz"))
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         with pytest.raises(Exception, match="yt-dlp error"):
             download_manager._download_worker(sample_item)
 
@@ -668,7 +672,7 @@ def test_worker_strategy_c_with_cookie_file(
             instance.download = MagicMock()
         return instance
 
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
 
     mock_callback.assert_any_call(
@@ -722,7 +726,7 @@ def test_worker_ytdl_flags(download_manager, sample_item):
 def _get_logger(download_manager, sample_item):
     """Run worker and return the captured logger object."""
     factory = _make_ytdl()
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
     return factory.captured["opts"]["logger"]
 
@@ -806,7 +810,7 @@ def test_logger_download_unparseable_percent(
 def test_logger_no_callback(test_config, sample_item):
     mgr = DownloadManager(test_config, None)
     factory = _make_ytdl()
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         mgr._download_worker(sample_item)
     logger = factory.captured["opts"]["logger"]
     logger.debug("[download]   5.0% of 100MB")  # progress_callback is None — no crash
@@ -832,7 +836,7 @@ def test_logger_kib_speed_with_space(download_manager, sample_item):
 
 def _capture_hooks(download_manager, sample_item):
     factory = _make_ytdl()
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         download_manager._download_worker(sample_item)
     return factory.captured["opts"].get("progress_hooks", [])
 
@@ -991,7 +995,7 @@ def test_progress_hook_finished(download_manager, sample_item):
 def test_progress_hook_no_callback(test_config, sample_item):
     mgr = DownloadManager(test_config, None)
     factory = _make_ytdl()
-    with patch("flowsnip.download_manager.yt_dlp.YoutubeDL", side_effect=factory):
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
         mgr._download_worker(sample_item)
     hooks = factory.captured["opts"].get("progress_hooks", [])
     for hook in hooks:
@@ -1022,10 +1026,7 @@ def test_queue_manager_completes_download(test_config, mock_callback):
     def fast_worker(self_or_item, item=None):
         pass  # instant success — handles both bound and unbound call styles
 
-    with (
-        patch("flowsnip.download_manager.time.sleep"),
-        patch.object(DownloadManager, "_download_worker", fast_worker),
-    ):
+    with patch.object(DownloadManager, "_download_worker", fast_worker):
         mgr = DownloadManager(test_config, mock_callback)
         mgr.start_downloads()
         item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
@@ -1050,18 +1051,17 @@ def test_queue_manager_retries_then_fails(test_config, mock_callback):
         call_count[0] += 1
         raise Exception("download broke")
 
-    with patch("flowsnip.download_manager.time.sleep"):
-        mgr = DownloadManager(test_config, mock_callback)
-        with patch.object(mgr, "_download_worker", side_effect=failing_worker):
-            mgr.start_downloads()
-            item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
-            mgr.pending_queue.put(item)
-            deadline = time.time() + 5.0
-            while time.time() < deadline:
-                if mgr.failed_downloads:
-                    break
-                time.sleep(0.05)
-            mgr.stop_downloads()
+    mgr = DownloadManager(test_config, mock_callback)
+    with patch.object(mgr, "_download_worker", side_effect=failing_worker):
+        mgr.start_downloads()
+        item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
+        mgr.pending_queue.put(item)
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if mgr.failed_downloads:
+                break
+            time.sleep(0.05)
+        mgr.stop_downloads()
 
     assert len(mgr.failed_downloads) == 1
     assert mgr.failed_downloads[0].status == DownloadStatus.FAILED
@@ -1092,3 +1092,116 @@ def test_del_while_running(test_config, mock_callback):
 def test_del_while_not_running(test_config, mock_callback):
     mgr = DownloadManager(test_config, mock_callback)
     mgr.__del__()  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _get_yt_dlp lazy accessor
+# ---------------------------------------------------------------------------
+
+
+def test_get_yt_dlp_imports_on_first_call():
+    import flowsnip.download_manager as dm
+
+    original = dm._yt_dlp_module
+    try:
+        dm._yt_dlp_module = None
+        result = _get_yt_dlp()
+        import yt_dlp
+
+        assert result is yt_dlp
+    finally:
+        dm._yt_dlp_module = original
+
+
+def test_get_yt_dlp_returns_cached():
+    import flowsnip.download_manager as dm
+
+    original = dm._yt_dlp_module
+    try:
+        dm._yt_dlp_module = None
+        r1 = _get_yt_dlp()
+        r2 = _get_yt_dlp()
+        assert r1 is r2
+    finally:
+        dm._yt_dlp_module = original
+
+
+# ---------------------------------------------------------------------------
+# _get_js_runtime lazy accessor
+# ---------------------------------------------------------------------------
+
+
+def test_get_js_runtime_calls_find_on_first_call():
+    import flowsnip.download_manager as dm
+
+    original = dm._JS_RUNTIME
+    try:
+        dm._JS_RUNTIME = _UNSET
+        fake = {"node": {"path": "/usr/bin/node"}}
+        with patch("flowsnip.download_manager._find_js_runtime", return_value=fake):
+            result = _get_js_runtime()
+        assert result == fake
+    finally:
+        dm._JS_RUNTIME = original
+
+
+def test_get_js_runtime_returns_cached():
+    import flowsnip.download_manager as dm
+
+    original = dm._JS_RUNTIME
+    try:
+        dm._JS_RUNTIME = {"cached": True}
+        result = _get_js_runtime()
+        assert result == {"cached": True}
+    finally:
+        dm._JS_RUNTIME = original
+
+
+# ---------------------------------------------------------------------------
+# MAX_HISTORY trimming
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_download_trims_completed_history(download_manager):
+    for i in range(MAX_HISTORY):
+        download_manager.completed_downloads.append(
+            DownloadItem(url=f"https://y.com/v={i}", title=f"V{i}")
+        )
+    extra = DownloadItem(url="https://y.com/v=x", title="X")
+    future = MagicMock()
+    download_manager.active_downloads[extra.id] = extra
+    download_manager.download_tasks[extra.id] = future
+    download_manager.cancel_download(extra.id)
+    assert len(download_manager.completed_downloads) == MAX_HISTORY
+
+
+def test_process_completed_trims_completed_history(download_manager):
+    for i in range(MAX_HISTORY):
+        download_manager.completed_downloads.append(
+            DownloadItem(url=f"https://y.com/v={i}", title=f"V{i}")
+        )
+    item = DownloadItem(url="https://y.com/v=x", title="X")
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.return_value = None
+    download_manager.active_downloads[item.id] = item
+    download_manager.download_tasks[item.id] = future
+    download_manager._process_completed_tasks()
+    assert len(download_manager.completed_downloads) == MAX_HISTORY
+
+
+def test_process_completed_trims_failed_history(download_manager):
+    download_manager.config.download.retry_attempts = 0
+    for i in range(MAX_HISTORY):
+        fi = DownloadItem(url=f"https://y.com/v={i}", title=f"V{i}")
+        fi.retry_count = 1
+        download_manager.failed_downloads.append(fi)
+    item = DownloadItem(url="https://y.com/v=x", title="X")
+    item.retry_count = 1  # already exceeds retry_attempts=0
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.side_effect = Exception("fail")
+    download_manager.active_downloads[item.id] = item
+    download_manager.download_tasks[item.id] = future
+    download_manager._process_completed_tasks()
+    assert len(download_manager.failed_downloads) == MAX_HISTORY
