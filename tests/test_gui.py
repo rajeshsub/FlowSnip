@@ -10,7 +10,12 @@ _CTK_STUB = sys.modules["customtkinter"]
 
 from flowsnip.config import Config  # noqa: E402
 from flowsnip.download_manager import DownloadItem, DownloadStatus  # noqa: E402
-from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame, show_legal_disclaimer  # noqa: E402
+from flowsnip.gui import (  # noqa: E402
+    ConfigFrame,
+    FlowSnipGUI,
+    ProgressFrame,
+    show_legal_disclaimer,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1239,6 +1244,7 @@ def test_show_legal_disclaimer_agree():
     root = MagicMock()
     # Access the messagebox stub that conftest.py injected
     messagebox_stub = sys.modules["tkinter.messagebox"]
+    messagebox_stub.askyesno.reset_mock()
     messagebox_stub.askyesno.return_value = True
     show_legal_disclaimer(root)
     messagebox_stub.askyesno.assert_called_once()

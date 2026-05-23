@@ -18,6 +18,8 @@ bootstrap:
 	@uv sync
 	@echo "✓ Dependencies installed"
 	@echo "✅ Bootstrap complete! Your environment is ready."
+	@command -v node >/dev/null 2>&1 || \
+		echo "⚠  Node.js not found on PATH. Set FLOWSNIP_NODE_PATH=/path/to/node if needed for yt-dlp n-challenge solving."
 	@echo ""
 	@echo "Next steps:"
 	@echo "  • Run 'make test' to verify the test suite"
