@@ -16,9 +16,6 @@ from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
-import yt_dlp
-from yt_dlp.utils import DownloadError, ExtractorError
-
 
 def _find_js_runtime() -> Optional[dict]:
     """Find a JS runtime for yt-dlp's n-challenge solver.
@@ -61,7 +58,29 @@ def _find_js_runtime() -> Optional[dict]:
     return None
 
 
-_JS_RUNTIME = _find_js_runtime()
+# Lazy accessors — avoid import-time cost of loading yt_dlp and probing the filesystem.
+_UNSET = object()
+_JS_RUNTIME = _UNSET  # populated on first download via _get_js_runtime()
+_yt_dlp_module = None  # populated on first download via _get_yt_dlp()
+
+
+def _get_yt_dlp():
+    """Return the yt_dlp module, importing it on the first call."""
+    global _yt_dlp_module
+    if _yt_dlp_module is None:
+        import yt_dlp as _m
+
+        _yt_dlp_module = _m
+    return _yt_dlp_module
+
+
+def _get_js_runtime():
+    """Return the JS runtime dict (or None), detecting it on the first call."""
+    global _JS_RUNTIME
+    if _JS_RUNTIME is _UNSET:
+        _JS_RUNTIME = _find_js_runtime()
+    return _JS_RUNTIME
+
 
 # Keywords that indicate a video requires authentication
 _AUTH_KEYWORDS = frozenset(
@@ -81,6 +100,8 @@ _AUTH_KEYWORDS = frozenset(
         "unavailable",
     ]
 )
+
+MAX_HISTORY = 200  # max items kept in completed_downloads / failed_downloads
 
 
 class DownloadStatus(Enum):
@@ -142,9 +163,9 @@ class DownloadManager:
                             None,
                         ),
                     }
-                    if _JS_RUNTIME:
-                        opts["js_runtimes"] = _JS_RUNTIME
-                    with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+                    if _get_js_runtime():
+                        opts["js_runtimes"] = _get_js_runtime()
+                    with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
                         info = ydl.extract_info(url, download=False)
                         return info.get("title", "") or ""
                 except Exception:
@@ -153,11 +174,11 @@ class DownloadManager:
             # Attempt 2: default yt-dlp with optional cookie file (works for public videos)
             try:
                 opts2: dict[str, Any] = {"quiet": True}
-                if _JS_RUNTIME:
-                    opts2["js_runtimes"] = _JS_RUNTIME
+                if _get_js_runtime():
+                    opts2["js_runtimes"] = _get_js_runtime()
                 if self.config.download.cookies_file:
                     opts2["cookiefile"] = self.config.download.cookies_file
-                with yt_dlp.YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
+                with _get_yt_dlp().YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
                     info = ydl.extract_info(url, download=False)
                     return info.get("title", "") or ""
             except Exception as e:
@@ -289,6 +310,8 @@ class DownloadManager:
             # Move to completed (cancelled) list immediately
             del self.active_downloads[download_id]
             self.completed_downloads.append(download_item)
+            if len(self.completed_downloads) > MAX_HISTORY:
+                self.completed_downloads = self.completed_downloads[-MAX_HISTORY:]
 
             if self.progress_callback:
                 self.progress_callback("download_cancelled", download_item)
@@ -394,11 +417,10 @@ class DownloadManager:
 
                 self._process_completed_tasks()
 
-                # Sleep to avoid busy waiting, but check for shutdown frequently
-                for _ in range(5):  # Check 5 times per 0.5 seconds
-                    if self._force_shutdown or self._stop_event.is_set():
-                        return
-                    time.sleep(0.1)
+                # Block until woken by stop_event or 500 ms timeout
+                self._stop_event.wait(timeout=0.5)
+                if self._stop_event.is_set() or self._force_shutdown:
+                    return
 
             except Exception as e:  # pragma: no cover
                 print(f"Error in queue manager: {e}")  # pragma: no cover
@@ -428,6 +450,10 @@ class DownloadManager:
                     download_item.status = DownloadStatus.COMPLETED
                     download_item.completed_at = time.time()
                     self.completed_downloads.append(download_item)
+                    if len(self.completed_downloads) > MAX_HISTORY:
+                        self.completed_downloads = self.completed_downloads[
+                            -MAX_HISTORY:
+                        ]
 
                     print(f"Download completed: {download_item.title}")
                     if self.progress_callback:
@@ -453,6 +479,8 @@ class DownloadManager:
                         # Max retries reached, move to failed
                         download_item.status = DownloadStatus.FAILED
                         self.failed_downloads.append(download_item)
+                        if len(self.failed_downloads) > MAX_HISTORY:
+                            self.failed_downloads = self.failed_downloads[-MAX_HISTORY:]
 
                         print(
                             f"Download failed after {download_item.retry_count} attempts: "
@@ -645,8 +673,8 @@ class DownloadManager:
             "max_sleep_interval": 5,
             "concurrent_fragment_downloads": 1,
         }
-        if _JS_RUNTIME:
-            base_opts["js_runtimes"] = _JS_RUNTIME
+        if _get_js_runtime():
+            base_opts["js_runtimes"] = _get_js_runtime()
 
         if self.config.download.audio_only:
             base_opts["format"] = (
@@ -680,8 +708,10 @@ class DownloadManager:
 
     def _run_ydl(self, download_item: DownloadItem, opts: dict) -> None:
         """Execute a single yt-dlp download attempt with the given options."""
+        from yt_dlp.utils import DownloadError, ExtractorError
+
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
+            with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
                 ydl.download([download_item.url])
         except (DownloadError, ExtractorError) as e:
             raise Exception(f"yt-dlp error: {e}")
