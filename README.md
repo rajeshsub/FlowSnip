@@ -8,6 +8,12 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 **Users assume all legal risk** associated with downloading, storing, or using any content from any platform using this tool. See [DISCLAIMER.md](DISCLAIMER.md) for full details.
 
+## Screenshot
+
+![FlowSnip GUI - Main Interface](assets/screenshot.png)
+
+*FlowSnip's modern CustomTkinter interface with dark theme support*
+
 ## Features
 
 ### Core Functionality
