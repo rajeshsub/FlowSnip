@@ -544,47 +544,20 @@ class FlowSnipGUI:
         self.root.grid_rowconfigure(2, weight=0)
 
     def _show_disclaimer_modal(self):
-        """Show the legal disclaimer as a blocking modal after the window renders."""
-        disclaimer_text = (
-            "Legal Disclaimer\n\n"
+        """Show the legal disclaimer after the window has rendered."""
+        result = messagebox.askyesno(
+            "Legal Disclaimer - FlowSnip",
             "FlowSnip is a tool for accessing content you own or have a legal right to access.\n\n"
             "You are solely responsible for:\n"
             "• Ensuring compliance with platform terms of service\n"
-            "• Respecting copyright and intellectual property laws\n"
+            "• Respecting copyright and intellectual property laws\n\n"
             "Maintainers assume NO LIABILITY for legal violations or misuse.\n\n"
-            "For full details, see DISCLAIMER.md in the project repository."
+            "For full details, see DISCLAIMER.md.\n\nDo you agree to these terms?",
         )
-        modal = ctk.CTkToplevel(self.root)
-        modal.title("Legal Disclaimer - FlowSnip")
-        modal.resizable(False, False)
-        modal.grab_set()
-
-        ctk.CTkLabel(modal, text=disclaimer_text, wraplength=400, justify="left").pack(
-            padx=20, pady=(20, 10)
-        )
-
-        accepted = [False]
-
-        def on_accept():
-            accepted[0] = True
-            modal.destroy()
-
-        def on_decline():
-            modal.destroy()
-
-        btn_frame = ctk.CTkFrame(modal)
-        btn_frame.pack(pady=(10, 20))
-        ctk.CTkButton(btn_frame, text="I Agree", command=on_accept).pack(
-            side="left", padx=10
-        )
-        ctk.CTkButton(btn_frame, text="Decline", command=on_decline).pack(
-            side="left", padx=10
-        )
-        modal.wait_window()
-
-        if not accepted[0]:
+        if not result:
             messagebox.showinfo(
-                "Terminated", "You did not agree to the terms. FlowSnip will now exit."
+                "Terminated",
+                "You did not agree to the terms. FlowSnip will now exit.",
             )
             sys.exit(0)
 
@@ -658,7 +631,7 @@ class FlowSnipGUI:
         self.open_folder_button.pack(side="left", padx=5)
 
     def _setup_sidebar(self):
-        """Build the left sidebar containing config and statistics panels."""
+        """Build the left sidebar containing the configuration panel."""
         main_frame = ctk.CTkFrame(self.root)
         main_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         main_frame.grid_columnconfigure(0, weight=0)
@@ -669,29 +642,29 @@ class FlowSnipGUI:
         sidebar.grid(row=0, column=0, sticky="ns", padx=(0, 10), pady=0)
 
         self.config_frame = ConfigFrame(sidebar, self.config)
-        self.config_frame.pack(fill="x", padx=8, pady=(8, 4))
-        self.config_frame.configure(width=90)
-
-        self.stats_frame = ctk.CTkFrame(sidebar, width=160, height=80)
-        self.stats_frame.pack(fill="x", padx=8, pady=(4, 8))
-        self.setup_stats_tab(self.stats_frame)
+        self.config_frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.content_frame = ctk.CTkFrame(main_frame)
         self.content_frame.grid(row=0, column=1, sticky="nsew")
         self.content_frame.grid_rowconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(1, weight=0)
         self.content_frame.grid_columnconfigure(0, weight=1)
 
     def _setup_downloads_area(self):
-        """Build the scrollable downloads list."""
+        """Build the scrollable downloads list and statistics panel below it."""
         self.downloads_scroll = ctk.CTkScrollableFrame(self.content_frame)
         self.downloads_scroll.grid(
-            row=1, column=0, sticky="nsew", padx=10, pady=(0, 10)
+            row=0, column=0, sticky="nsew", padx=10, pady=(10, 5)
         )
         self.downloads_scroll.grid_columnconfigure(0, weight=1)
         self.status_label = ctk.CTkLabel(
             self.downloads_scroll, text="No active downloads"
         )
         self.status_label.grid(row=0, column=0, pady=6)
+
+        self.stats_frame = ctk.CTkFrame(self.content_frame)
+        self.stats_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
+        self.setup_stats_tab(self.stats_frame)
 
     def _setup_log_panel(self):
         """Build the activity log panel at the bottom."""
