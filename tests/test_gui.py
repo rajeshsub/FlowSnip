@@ -320,24 +320,8 @@ def test_finish_ui_setup(temp_dir):
 
 def test_show_disclaimer_modal_accept():
     g = _make_gui()
-    buttons = {}
-
-    def capture_button(*args, **kw):
-        btn = MagicMock()
-        if kw.get("text") == "I Agree":
-            buttons["accept"] = kw.get("command")
-        return btn
-
-    mock_modal = MagicMock()
-
-    def do_accept():
-        if "accept" in buttons:
-            buttons["accept"]()
-
-    mock_modal.wait_window.side_effect = do_accept
     with (
-        patch("flowsnip.gui.ctk.CTkToplevel", return_value=mock_modal),
-        patch("flowsnip.gui.ctk.CTkButton", side_effect=capture_button),
+        patch("flowsnip.gui.messagebox.askyesno", return_value=True),
         patch("flowsnip.gui.sys.exit") as mock_exit,
     ):
         g._show_disclaimer_modal()
@@ -346,26 +330,10 @@ def test_show_disclaimer_modal_accept():
 
 def test_show_disclaimer_modal_decline():
     g = _make_gui()
-    buttons = {}
-
-    def capture_button(*args, **kw):
-        btn = MagicMock()
-        if kw.get("text") == "Decline":
-            buttons["decline"] = kw.get("command")
-        return btn
-
-    mock_modal = MagicMock()
-
-    def do_decline():
-        if "decline" in buttons:
-            buttons["decline"]()
-
-    mock_modal.wait_window.side_effect = do_decline
     with (
-        patch("flowsnip.gui.ctk.CTkToplevel", return_value=mock_modal),
-        patch("flowsnip.gui.ctk.CTkButton", side_effect=capture_button),
-        patch("flowsnip.gui.sys.exit") as mock_exit,
+        patch("flowsnip.gui.messagebox.askyesno", return_value=False),
         patch("flowsnip.gui.messagebox.showinfo"),
+        patch("flowsnip.gui.sys.exit") as mock_exit,
     ):
         g._show_disclaimer_modal()
     mock_exit.assert_called_once_with(0)
