@@ -127,22 +127,16 @@ python -m flowsnip.main --max-parallel 5 --theme light
 
 ### Code Quality Management
 ```bash
+# Lint and auto-fix
+uv run ruff check --fix flowsnip tests
+
 # Format code
-black flowsnip tests
-
-# Sort imports  
-isort flowsnip tests
-
-# Lint code
-flake8 flowsnip tests
-
-# Type checking
-mypy flowsnip
+uv run ruff format flowsnip tests
 ```
 
 ### Automated tests with Pytest
 ```bash
-# Run tests (when implemented)
+# Run tests
 pytest
 
 # Run with coverage
@@ -159,9 +153,14 @@ FlowSnip/
 │   ├── main.py             # Application entry point
 │   ├── download_manager.py # Download queue processing
 │   └── gui.py              # GUI interface
-├── tests/                  # Test suite framework
-├── .venv/                  # Virtual environment
+├── assets/                 # Static assets
+│   └── screenshot.png      # GUI screenshot
+├── docs/                   # Documentation
+│   └── agents/             # Agent skill configuration
+├── tests/                  # Test suite
+├── Makefile                # Developer workflow targets
 ├── pyproject.toml          # Project configuration
+├── DISCLAIMER.md           # Legal disclaimer
 └── README.md               # This file
 ```
 
