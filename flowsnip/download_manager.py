@@ -699,13 +699,9 @@ class DownloadManager:
             base_opts["writeinfojson"] = True
         if self.config.ytdl.write_description:
             base_opts["writedescription"] = True
-        if self.config.ytdl.write_thumbnail:
-            base_opts["writethumbnail"] = True
         if self.config.ytdl.embed_subs:
             base_opts["writesubtitles"] = True
             base_opts["writeautomaticsub"] = True
-        if self.config.ytdl.embed_thumbnail:
-            base_opts["embedthumbnail"] = True
         if self.config.ytdl.add_metadata:
             base_opts["addmetadata"] = True
 
