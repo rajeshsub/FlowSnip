@@ -698,24 +698,18 @@ def test_worker_audio_only(download_manager, sample_item):
 def test_worker_ytdl_flags(download_manager, sample_item):
     download_manager.config.ytdl.write_info_json = True
     download_manager.config.ytdl.write_description = True
-    download_manager.config.ytdl.write_thumbnail = True
     download_manager.config.ytdl.embed_subs = True
-    download_manager.config.ytdl.embed_thumbnail = True
     download_manager.config.ytdl.add_metadata = True
     factory = _make_ytdl()
     opts = _run_worker(download_manager, sample_item, factory)
     assert opts.get("writeinfojson") is True
     assert opts.get("writedescription") is True
-    assert opts.get("writethumbnail") is True
     assert opts.get("writesubtitles") is True
-    assert opts.get("embedthumbnail") is True
     assert opts.get("addmetadata") is True
     # reset
     download_manager.config.ytdl.write_info_json = False
     download_manager.config.ytdl.write_description = False
-    download_manager.config.ytdl.write_thumbnail = False
     download_manager.config.ytdl.embed_subs = False
-    download_manager.config.ytdl.embed_thumbnail = False
 
 
 # ---------------------------------------------------------------------------

@@ -258,7 +258,7 @@ class ConfigFrame(ctk.CTkFrame):
         return row + 1
 
     def _setup_format_section(self, row: int) -> int:
-        """Add audio-only toggle, video quality, thumbnail, and audio quality controls."""
+        """Add audio-only toggle, video quality, and audio quality controls."""
         self.audio_only_var = ctk.BooleanVar(value=self.config_obj.download.audio_only)
         self.audio_only_checkbox = ctk.CTkCheckBox(
             self,
@@ -301,20 +301,6 @@ class ConfigFrame(ctk.CTkFrame):
         self.quality_combobox.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
         self.quality_combobox.configure(
             state="disabled" if self.audio_only_var.get() else "normal"
-        )
-        row += 1
-
-        self.download_thumbnail_var = ctk.BooleanVar(
-            value=self.config_obj.ytdl.write_thumbnail
-        )
-        self.download_thumbnail_checkbox = ctk.CTkCheckBox(
-            self,
-            text="Download Thumbnail",
-            variable=self.download_thumbnail_var,
-            command=self.update_download_thumbnail,
-        )
-        self.download_thumbnail_checkbox.grid(
-            row=row, column=0, columnspan=2, sticky="w", padx=10, pady=5
         )
         row += 1
 
@@ -419,10 +405,6 @@ class ConfigFrame(ctk.CTkFrame):
     def update_audio_quality(self, value):
         """Update audio quality setting."""
         self.config_obj.download.audio_quality = value
-
-    def update_download_thumbnail(self):
-        """Update download thumbnail setting."""
-        self.config_obj.ytdl.write_thumbnail = self.download_thumbnail_var.get()
 
     def update_theme(self, value):
         """Update UI theme."""

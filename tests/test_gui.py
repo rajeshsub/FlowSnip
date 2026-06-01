@@ -70,7 +70,6 @@ def _make_config_frame(config=None):
     }
     cf.theme_var = _CTK_STUB.StringVar(value="dark")
     cf.theme_combobox = MagicMock()
-    cf.download_thumbnail_var = _CTK_STUB.BooleanVar(value=False)
     return cf
 
 
@@ -482,13 +481,6 @@ def test_update_audio_quality():
     cf = _make_config_frame()
     cf.update_audio_quality("320")
     assert cf.config_obj.download.audio_quality == "320"
-
-
-def test_update_download_thumbnail():
-    cf = _make_config_frame()
-    cf.download_thumbnail_var.set(True)
-    cf.update_download_thumbnail()
-    assert cf.config_obj.ytdl.write_thumbnail is True
 
 
 def test_update_theme():
