@@ -165,6 +165,7 @@ class DownloadManager:
                     }
                     if _get_js_runtime():
                         opts["js_runtimes"] = _get_js_runtime()
+                        opts["remote_components"] = "ejs:github"
                     with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
                         info = ydl.extract_info(url, download=False)
                         return info.get("title", "") or ""
@@ -176,6 +177,7 @@ class DownloadManager:
                 opts2: dict[str, Any] = {"quiet": True}
                 if _get_js_runtime():
                     opts2["js_runtimes"] = _get_js_runtime()
+                    opts2["remote_components"] = "ejs:github"
                 if self.config.download.cookies_file:
                     opts2["cookiefile"] = self.config.download.cookies_file
                 with _get_yt_dlp().YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
@@ -675,6 +677,9 @@ class DownloadManager:
         }
         if _get_js_runtime():
             base_opts["js_runtimes"] = _get_js_runtime()
+            # Required for harder n-challenges (e.g. members-only content).
+            # Without this, yt-dlp falls back to clients that don't honour browser cookies.
+            base_opts["remote_components"] = ["ejs:github"]
 
         if self.config.download.audio_only:
             base_opts["format"] = (
