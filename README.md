@@ -34,6 +34,11 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 - **Configuration Files** - Import/export JSON configurations
 - **Command Line Override** - Full CLI support for scripting
 
+### Updates
+- **Auto-update Checks** - Checks for new FlowSnip releases and yt-dlp updates on startup
+- **In-app Banner** - Non-intrusive notification with one-click update or dismiss
+- **Configurable Frequency** - Every launch, daily, weekly, or never; individually toggleable per component
+
 ### Legal Acknowledgment
 On startup, FlowSnip displays a legal disclaimer dialog that users must acknowledge. The dialog presents the key terms of responsibility and requires users to agree to proceed. If a user declines to agree, the application will exit gracefully. This ensures all users are aware of their legal obligations before using the tool.
 
@@ -44,8 +49,7 @@ Pre-built installers are attached to every [GitHub Release](https://github.com/r
 | Platform | File |
 |---|---|
 | Windows | `FlowSnip-x.y.z-windows-setup.exe` |
-| macOS Apple Silicon | `FlowSnip-x.y.z-macos-arm64.dmg` |
-| macOS Intel | `FlowSnip-x.y.z-macos-x86_64.dmg` |
+| macOS (Apple Silicon + Intel via Rosetta 2) | `FlowSnip-x.y.z-macos-arm64.dmg` |
 | Linux | `FlowSnip-x.y.z-linux.AppImage` |
 
 ### ⚠️ Unsigned builds — first-launch warnings
@@ -174,21 +178,35 @@ pytest --cov=flowsnip
 
 ```
 FlowSnip/
-├── flowsnip/               # Main package
-│   ├── __init__.py         # Package initialization
-│   ├── config.py           # Configuration management
-│   ├── main.py             # Application entry point
-│   ├── download_manager.py # Download queue processing
-│   └── gui.py              # GUI interface
-├── assets/                 # Static assets
-│   └── screenshot.png      # GUI screenshot
-├── docs/                   # Documentation
-│   └── agents/             # Agent skill configuration
-├── tests/                  # Test suite
-├── Makefile                # Developer workflow targets
-├── pyproject.toml          # Project configuration
-├── DISCLAIMER.md           # Legal disclaimer
-└── README.md               # This file
+├── .github/
+│   └── workflows/
+│       └── release.yml         # CI/CD release pipeline (triggered on v*.*.* tags)
+├── flowsnip/                   # Main package
+│   ├── __init__.py             # Package initialization
+│   ├── config.py               # Configuration management (Pydantic models)
+│   ├── download_manager.py     # Download queue processing
+│   ├── gui.py                  # GUI interface (CustomTkinter)
+│   ├── main.py                 # Application entry point
+│   └── updater.py              # Auto-update logic (FlowSnip + yt-dlp)
+├── installer/                  # Packaging & distribution
+│   ├── FlowSnip.spec           # PyInstaller spec (all platforms)
+│   ├── pre_build.py            # Converts icon.png → .ico / .icns
+│   ├── macos/
+│   │   └── create_dmg.sh       # macOS DMG packaging script
+│   └── windows/
+│       └── FlowSnip.nsi        # NSIS wizard installer script
+├── assets/                     # Static assets
+│   ├── icon.png                # App icon (source)
+│   ├── icon.ico                # App icon (Windows)
+│   ├── icon.icns               # App icon (macOS)
+│   └── screenshot.png          # GUI screenshot
+├── docs/                       # Documentation
+│   └── agents/                 # Agent skill configuration
+├── tests/                      # Test suite
+├── Makefile                    # Developer workflow targets
+├── pyproject.toml              # Project configuration
+├── DISCLAIMER.md               # Legal disclaimer
+└── README.md                   # This file
 ```
 
 ## Contributing

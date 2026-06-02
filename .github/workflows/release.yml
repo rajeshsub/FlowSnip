@@ -156,57 +156,6 @@ jobs:
           path: dist/FlowSnip-${{ env.VERSION }}-macos-${{ env.ARCH }}.dmg
 
   # ---------------------------------------------------------------------------
-  # macOS x86_64 build → DMG
-  # ---------------------------------------------------------------------------
-  build-macos-x86:
-    name: Build macOS x86_64 DMG
-    runs-on: macos-13
-    needs: version
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-      ARCH: x86_64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies + PyInstaller
-        run: |
-          uv sync
-          uv pip install pyinstaller
-
-      - name: Download ffmpeg (macOS)
-        run: |
-          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg.zip
-          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
-          mkdir -p ffmpeg_bin
-          unzip -o ffmpeg.zip -d ffmpeg_bin
-          unzip -o ffprobe.zip -d ffmpeg_bin
-          chmod +x ffmpeg_bin/ffmpeg ffmpeg_bin/ffprobe
-
-      - name: Generate icon files
-        run: uv run python installer/pre_build.py
-
-      - name: Build with PyInstaller
-        run: uv run pyinstaller installer/FlowSnip.spec
-
-      # TODO: code signing + notarization
-      # codesign --deep --force --sign "Developer ID Application: ..." dist/FlowSnip.app
-
-      - name: Create DMG
-        run: bash installer/macos/create_dmg.sh ${{ env.VERSION }} ${{ env.ARCH }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-x86-dmg
-          path: dist/FlowSnip-${{ env.VERSION }}-macos-${{ env.ARCH }}.dmg
-
-  # ---------------------------------------------------------------------------
   # Linux build → AppImage
   # ---------------------------------------------------------------------------
   build-linux:
@@ -296,7 +245,7 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [version, build-windows, build-macos-arm64, build-macos-x86, build-linux]
+    needs: [version, build-windows, build-macos-arm64, build-linux]
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -315,5 +264,4 @@ jobs:
           files: |
             release-artifacts/FlowSnip-${{ env.VERSION }}-windows-setup.exe
             release-artifacts/FlowSnip-${{ env.VERSION }}-macos-arm64.dmg
-            release-artifacts/FlowSnip-${{ env.VERSION }}-macos-x86_64.dmg
             release-artifacts/FlowSnip-${{ env.VERSION }}-linux.AppImage
