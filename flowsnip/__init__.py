@@ -6,10 +6,10 @@ with features like parallel processing, queue management, and error handling.
 """
 
 __version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__author__ = "Rajesh Subramaniam"
+__email__ = ""
 
-from .config import Config
+from .config import Config, UpdateConfig
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
-__all__ = ["Config", "DownloadManager", "DownloadItem", "DownloadStatus"]
+__all__ = ["Config", "UpdateConfig", "DownloadManager", "DownloadItem", "DownloadStatus"]

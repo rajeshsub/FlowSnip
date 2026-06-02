@@ -37,6 +37,33 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 ### Legal Acknowledgment
 On startup, FlowSnip displays a legal disclaimer dialog that users must acknowledge. The dialog presents the key terms of responsibility and requires users to agree to proceed. If a user declines to agree, the application will exit gracefully. This ensures all users are aware of their legal obligations before using the tool.
 
+## Installation
+
+Pre-built installers are attached to every [GitHub Release](https://github.com/rajeshsub/FlowSnip/releases). Download the one for your platform — no Python or other prerequisites needed.
+
+| Platform | File |
+|---|---|
+| Windows | `FlowSnip-x.y.z-windows-setup.exe` |
+| macOS Apple Silicon | `FlowSnip-x.y.z-macos-arm64.dmg` |
+| macOS Intel | `FlowSnip-x.y.z-macos-x86_64.dmg` |
+| Linux | `FlowSnip-x.y.z-linux.AppImage` |
+
+### ⚠️ Unsigned builds — first-launch warnings
+
+Installers are currently unsigned. Your OS will warn you on first launch.
+
+**Windows (SmartScreen):**
+> "Windows protected your PC"
+
+Click **More info → Run anyway**.
+
+**macOS (Gatekeeper):**
+> "FlowSnip cannot be opened because the developer cannot be verified"
+
+Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the FlowSnip entry. Alternatively, right-click the `.app` in Finder and choose **Open**.
+
+---
+
 ## Getting Started
 
 ### Prerequisites

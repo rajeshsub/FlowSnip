@@ -70,6 +70,10 @@ def _make_config_frame(config=None):
     }
     cf.theme_var = _CTK_STUB.StringVar(value="dark")
     cf.theme_combobox = MagicMock()
+    cf.check_flowsnip_var = _CTK_STUB.BooleanVar(value=True)
+    cf.check_ytdlp_var = _CTK_STUB.BooleanVar(value=True)
+    cf.update_frequency_var = _CTK_STUB.StringVar(value="daily")
+    cf.last_checked_label = MagicMock()
     return cf
 
 
@@ -104,6 +108,9 @@ def _make_gui(config=None):
     g.stats_frame = MagicMock()
     g._last_ui_update = {}
     g._log_line_count = 0
+    g._update_banner = MagicMock()
+    g._update_banner_label = MagicMock()
+    g._update_banner_action = MagicMock()
     return g
 
 
@@ -1294,3 +1301,130 @@ def test_cleanup_no_manager():
     g = _make_gui()
     del g.download_manager
     g.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# ConfigFrame — update settings callbacks
+# ---------------------------------------------------------------------------
+
+
+def test_update_check_flowsnip():
+    cf = _make_config_frame()
+    cf.check_flowsnip_var.set(False)
+    cf.update_check_flowsnip()
+    assert cf.config_obj.updates.check_flowsnip is False
+
+
+def test_update_check_ytdlp():
+    cf = _make_config_frame()
+    cf.check_ytdlp_var.set(False)
+    cf.update_check_ytdlp()
+    assert cf.config_obj.updates.check_ytdlp is False
+
+
+def test_update_check_frequency():
+    cf = _make_config_frame()
+    cf.update_check_frequency("weekly")
+    assert cf.config_obj.updates.frequency == "weekly"
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI — update banner
+# ---------------------------------------------------------------------------
+
+
+def test_setup_update_banner():
+    g = _make_gui()
+    g._setup_update_banner()
+    assert hasattr(g, "_update_banner")
+    assert hasattr(g, "_update_banner_label")
+    assert hasattr(g, "_update_banner_action")
+
+
+def test_show_update_banner():
+    g = _make_gui()
+    # _make_gui already provides _update_banner/_update_banner_label/_update_banner_action
+    # as MagicMocks — do NOT call _setup_update_banner() here or it overwrites them.
+    cb = MagicMock()
+    g.show_update_banner("New version available", "Download", cb)
+    g._update_banner.grid.assert_called()
+
+
+def test_dismiss_update_banner():
+    g = _make_gui()
+    g._dismiss_update_banner()
+    g._update_banner.grid_remove.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# FlowSnipGUI._set_window_icon
+# ---------------------------------------------------------------------------
+
+
+def test_set_window_icon_windows_file_exists():
+    g = _make_gui()
+    with (
+        patch("flowsnip.gui.platform.system", return_value="Windows"),
+        patch("flowsnip.gui._resource_path") as mock_rp,
+    ):
+        p = MagicMock()
+        p.exists.return_value = True
+        mock_rp.return_value = p
+        g._set_window_icon()
+    g.root.wm_iconbitmap.assert_called_once()
+
+
+def test_set_window_icon_windows_file_missing():
+    g = _make_gui()
+    with (
+        patch("flowsnip.gui.platform.system", return_value="Windows"),
+        patch("flowsnip.gui._resource_path") as mock_rp,
+    ):
+        p = MagicMock()
+        p.exists.return_value = False
+        mock_rp.return_value = p
+        g._set_window_icon()
+    g.root.wm_iconbitmap.assert_not_called()
+
+
+def test_set_window_icon_other_platform():
+    g = _make_gui()
+    mock_img = MagicMock()
+    with (
+        patch("flowsnip.gui.platform.system", return_value="Linux"),
+        patch("flowsnip.gui._resource_path") as mock_rp,
+        patch("PIL.Image.open", return_value=MagicMock()),
+        patch("PIL.ImageTk.PhotoImage", return_value=mock_img),
+    ):
+        p = MagicMock()
+        p.exists.return_value = True
+        mock_rp.return_value = p
+        g._set_window_icon()
+    g.root.iconphoto.assert_called_once()
+    assert g._icon_ref is mock_img
+
+
+def test_set_window_icon_other_platform_no_file():
+    g = _make_gui()
+    with (
+        patch("flowsnip.gui.platform.system", return_value="Darwin"),
+        patch("flowsnip.gui._resource_path") as mock_rp,
+    ):
+        p = MagicMock()
+        p.exists.return_value = False
+        mock_rp.return_value = p
+        g._set_window_icon()
+    g.root.iconphoto.assert_not_called()
+
+
+def test_set_window_icon_exception_swallowed():
+    g = _make_gui()
+    with (
+        patch("flowsnip.gui.platform.system", return_value="Windows"),
+        patch("flowsnip.gui._resource_path") as mock_rp,
+    ):
+        p = MagicMock()
+        p.exists.return_value = True
+        mock_rp.return_value = p
+        g.root.wm_iconbitmap.side_effect = Exception("no display")
+        g._set_window_icon()  # must not raise
