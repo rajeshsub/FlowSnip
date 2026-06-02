@@ -17,7 +17,7 @@
 !endif
 
 Name            "${APP_NAME} ${VERSION}"
-OutFile         "dist\FlowSnip-${VERSION}-windows-setup.exe"
+OutFile         "..\..\dist\FlowSnip-${VERSION}-windows-setup.exe"
 InstallDir      "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "${REG_KEY}" "InstallLocation"
 RequestExecutionLevel admin
