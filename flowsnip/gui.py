@@ -5,16 +5,24 @@ Provides a modern, polished interface for managing video downloads with
 queue management, progress tracking, and configuration options.
 """
 
+import platform
 import sys
 import time
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import Dict
+from typing import Dict, Optional
 
 import customtkinter as ctk
 
 from .config import Config
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
+
+
+def _resource_path(relative: str) -> Path:
+    """Return absolute path to a bundled asset (works in dev and PyInstaller)."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
+    return base / relative
 
 
 class ProgressFrame(ctk.CTkFrame):
@@ -161,6 +169,7 @@ class ConfigFrame(ctk.CTkFrame):
         row = self._setup_download_section(row)
         row = self._setup_format_section(row)
         row = self._setup_appearance_section(row)
+        row = self._setup_update_section(row)
         self._setup_action_buttons(row)
 
         self.grid_columnconfigure(1, weight=1)
@@ -334,6 +343,67 @@ class ConfigFrame(ctk.CTkFrame):
         self.theme_combobox.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
         return row + 1
 
+    def _setup_update_section(self, row: int) -> int:
+        """Add auto-updater toggles, frequency selector, and last-checked display."""
+        ctk.CTkLabel(
+            self,
+            text="Updates",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(10, 2))
+        row += 1
+
+        self.check_flowsnip_var = ctk.BooleanVar(
+            value=self.config_obj.updates.check_flowsnip
+        )
+        ctk.CTkCheckBox(
+            self,
+            text="Check for FlowSnip updates",
+            variable=self.check_flowsnip_var,
+            command=self.update_check_flowsnip,
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        row += 1
+
+        self.check_ytdlp_var = ctk.BooleanVar(
+            value=self.config_obj.updates.check_ytdlp
+        )
+        ctk.CTkCheckBox(
+            self,
+            text="Check for yt-dlp updates",
+            variable=self.check_ytdlp_var,
+            command=self.update_check_ytdlp,
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        row += 1
+
+        ctk.CTkLabel(self, text="Check frequency:").grid(
+            row=row, column=0, sticky="w", padx=10, pady=5
+        )
+        self.update_frequency_var = ctk.StringVar(
+            value=self.config_obj.updates.frequency
+        )
+        self.update_frequency_menu = ctk.CTkOptionMenu(
+            self,
+            values=["every_launch", "daily", "weekly", "never"],
+            variable=self.update_frequency_var,
+            command=self.update_check_frequency,
+        )
+        self.update_frequency_menu.grid(row=row, column=1, sticky="ew", padx=10, pady=5)
+        row += 1
+
+        last = self.config_obj.updates.last_checked
+        last_text = last.strftime("%Y-%m-%d %H:%M") if last else "Never"
+        self.last_checked_label = ctk.CTkLabel(
+            self,
+            text=f"Last checked: {last_text}",
+            font=ctk.CTkFont(size=10),
+            text_color=("gray40", "gray60"),
+            anchor="w",
+        )
+        self.last_checked_label.grid(
+            row=row, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 4)
+        )
+        return row + 1
+
     def _setup_action_buttons(self, row: int) -> None:
         """Add Save Config and Load Config buttons."""
         button_frame = ctk.CTkFrame(self)
@@ -410,6 +480,15 @@ class ConfigFrame(ctk.CTkFrame):
         """Update UI theme."""
         self.config_obj.ui.theme = value
         ctk.set_appearance_mode(value)
+
+    def update_check_flowsnip(self):
+        self.config_obj.updates.check_flowsnip = self.check_flowsnip_var.get()
+
+    def update_check_ytdlp(self):
+        self.config_obj.updates.check_ytdlp = self.check_ytdlp_var.get()
+
+    def update_check_frequency(self, value: str):
+        self.config_obj.updates.frequency = value
 
     def update_auto_start(self):
         """Update auto-start downloads setting."""
@@ -522,8 +601,72 @@ class FlowSnipGUI:
         )
         self.root.minsize(800, 600)
         self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_rowconfigure(2, weight=0)
+        # row 0: update banner (hidden until needed)
+        # row 1: URL bar
+        # row 2: main content + sidebar
+        # row 3: activity log
+        self.root.grid_rowconfigure(0, weight=0)
+        self.root.grid_rowconfigure(2, weight=1)
+        self.root.grid_rowconfigure(3, weight=0)
+        self._set_window_icon()
+
+    def _set_window_icon(self):
+        """Set the application window icon."""
+        try:
+            if platform.system() == "Windows":
+                ico = _resource_path("assets/icon.ico")
+                if ico.exists():
+                    self.root.wm_iconbitmap(str(ico))
+            else:
+                from PIL import Image, ImageTk
+
+                png = _resource_path("assets/icon.png")
+                if png.exists():
+                    img = ImageTk.PhotoImage(Image.open(png).resize((64, 64)))
+                    self.root.iconphoto(True, img)
+                    self._icon_ref = img  # prevent GC
+        except Exception:
+            pass
+
+    def _setup_update_banner(self):
+        """Create the dismissible update notification banner (hidden until needed)."""
+        self._update_banner = ctk.CTkFrame(self.root, fg_color="#2B5EA8")
+        # not gridded yet — shown only when an update is available
+        self._update_banner_label = ctk.CTkLabel(
+            self._update_banner, text="", text_color="white", anchor="w"
+        )
+        self._update_banner_label.pack(side="left", padx=12, pady=6, fill="x", expand=True)
+        self._update_banner_action = ctk.CTkButton(
+            self._update_banner,
+            text="",
+            width=140,
+            fg_color="#1A3D6B",
+            hover_color="#243F6E",
+        )
+        self._update_banner_action.pack(side="left", padx=6, pady=6)
+        ctk.CTkButton(
+            self._update_banner,
+            text="✕",
+            width=30,
+            fg_color="transparent",
+            hover_color="#1A3D6B",
+            text_color="white",
+            command=self._dismiss_update_banner,
+        ).pack(side="right", padx=6, pady=6)
+
+    def _dismiss_update_banner(self):
+        self._update_banner.grid_remove()
+
+    def show_update_banner(
+        self,
+        message: str,
+        action_label: str,
+        action_callback,
+    ):
+        """Show the update banner (thread-safe — call via root.after)."""
+        self._update_banner_label.configure(text=message)
+        self._update_banner_action.configure(text=action_label, command=action_callback)
+        self._update_banner.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
 
     def _show_disclaimer_modal(self):
         """Show the legal disclaimer after the window has rendered."""
@@ -553,6 +696,7 @@ class FlowSnipGUI:
     def _finish_ui_setup(self):
         """Complete UI setup scheduled after the initial frame renders."""
         t0 = time.perf_counter()
+        self._setup_update_banner()
         self._setup_sidebar()
         self._setup_downloads_area()
         self._setup_log_panel()
@@ -562,7 +706,7 @@ class FlowSnipGUI:
     def _setup_url_bar(self):
         """Build the top URL input bar with action buttons."""
         top_frame = ctk.CTkFrame(self.root)
-        top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        top_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
         top_frame.grid_columnconfigure(1, weight=1)
         top_frame.grid_columnconfigure(2, weight=0)
 
@@ -615,7 +759,7 @@ class FlowSnipGUI:
     def _setup_sidebar(self):
         """Build the left sidebar containing the configuration panel."""
         main_frame = ctk.CTkFrame(self.root)
-        main_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        main_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
         main_frame.grid_columnconfigure(0, weight=0)
         main_frame.grid_columnconfigure(1, weight=1)
         main_frame.grid_rowconfigure(0, weight=1)
@@ -651,7 +795,7 @@ class FlowSnipGUI:
     def _setup_log_panel(self):
         """Build the activity log panel at the bottom."""
         log_frame = ctk.CTkFrame(self.root)
-        log_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        log_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(0, weight=1)
 

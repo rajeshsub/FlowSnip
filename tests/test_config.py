@@ -9,6 +9,7 @@ from flowsnip.config import (
     Config,
     DownloadConfig,
     UIConfig,
+    UpdateConfig,
     YtdlConfig,
     create_arg_parser,
     get_default_config_path,
@@ -192,6 +193,55 @@ def test_create_arg_parser_help():
     parser = create_arg_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["--help"])
+
+
+# ---------------------------------------------------------------------------
+# UpdateConfig
+# ---------------------------------------------------------------------------
+
+
+def test_update_config_defaults():
+    cfg = UpdateConfig()
+    assert cfg.check_flowsnip is True
+    assert cfg.check_ytdlp is True
+    assert cfg.frequency == "daily"
+    assert cfg.last_checked is None
+
+
+def test_update_config_invalid_frequency():
+    with pytest.raises(Exception):
+        UpdateConfig(frequency="hourly")
+
+
+def test_update_config_valid_frequencies():
+    for freq in ("every_launch", "daily", "weekly", "never"):
+        cfg = UpdateConfig(frequency=freq)
+        assert cfg.frequency == freq
+
+
+def test_update_config_roundtrip(temp_dir):
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    cfg = Config()
+    cfg.updates.check_flowsnip = False
+    cfg.updates.check_ytdlp = False
+    cfg.updates.frequency = "weekly"
+    cfg.updates.last_checked = now
+    path = temp_dir / "cfg.json"
+    cfg.save_to_file(path)
+
+    loaded = Config.load_from_file(path)
+    assert loaded.updates.check_flowsnip is False
+    assert loaded.updates.check_ytdlp is False
+    assert loaded.updates.frequency == "weekly"
+    assert loaded.updates.last_checked is not None
+
+
+def test_config_defaults_include_updates():
+    cfg = Config()
+    assert cfg.updates.check_flowsnip is True
+    assert cfg.updates.frequency == "daily"
 
 
 def test_create_arg_parser_all_flags(temp_dir):

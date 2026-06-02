@@ -7,6 +7,7 @@ Supports both file-based configuration and command-line overrides.
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -60,12 +61,30 @@ class YtdlConfig(BaseModel):
     custom_args: List[str] = Field(default_factory=list)
 
 
+class UpdateConfig(BaseModel):
+    """Configuration for the auto-updater."""
+
+    check_flowsnip: bool = Field(default=True)
+    check_ytdlp: bool = Field(default=True)
+    frequency: str = Field(default="daily")
+    last_checked: Optional[datetime] = Field(default=None)
+
+    @field_validator("frequency")
+    @classmethod
+    def validate_frequency(cls, v):
+        allowed = {"every_launch", "daily", "weekly", "never"}
+        if v not in allowed:
+            raise ValueError(f"frequency must be one of {allowed}")
+        return v
+
+
 class Config(BaseSettings):
     """Main configuration class for FlowSnip."""
 
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     ytdl: YtdlConfig = Field(default_factory=YtdlConfig)
+    updates: UpdateConfig = Field(default_factory=UpdateConfig)
 
     model_config = {
         "env_prefix": "FLOWSNIP_",
@@ -79,7 +98,7 @@ class Config(BaseSettings):
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Convert to dict and handle Path objects
-        config_dict = self.model_dump()
+        config_dict = self.model_dump(mode="json")
         self._convert_paths_to_strings(config_dict)
 
         with open(config_path, "w", encoding="utf-8") as f:
