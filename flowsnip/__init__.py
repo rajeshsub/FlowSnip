@@ -5,9 +5,14 @@ This package provides a comprehensive interface for managing video downloads
 with features like parallel processing, queue management, and error handling.
 """
 
-__version__ = "0.1.0"
-__author__ = "Rajesh Subramaniam"
-__email__ = ""
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    __version__ = _pkg_version("flowsnip")
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "unknown"
+
+__author__ = "Rajesh Subramanian"
 
 from .config import Config, UpdateConfig
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
