@@ -110,6 +110,7 @@ class DownloadStatus(Enum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
     COMPLETED = "completed"
+    SKIPPED = "skipped"
     FAILED = "failed"
     PAUSED = "paused"
     CANCELLED = "cancelled"
@@ -131,6 +132,7 @@ class DownloadItem:
     total_bytes: int = 0
     error_message: str = ""
     retry_count: int = 0
+    already_exists: bool = False
     output_path: Optional[Path] = None
     created_at: float = field(default_factory=time.time)
     started_at: Optional[float] = None
@@ -449,7 +451,11 @@ class DownloadManager:
                 try:
                     # Get the result (will raise exception if download failed)
                     future.result()
-                    download_item.status = DownloadStatus.COMPLETED
+                    download_item.status = (
+                        DownloadStatus.SKIPPED
+                        if download_item.already_exists
+                        else DownloadStatus.COMPLETED
+                    )
                     download_item.completed_at = time.time()
                     self.completed_downloads.append(download_item)
                     if len(self.completed_downloads) > MAX_HISTORY:
@@ -516,7 +522,7 @@ class DownloadManager:
                 "log_message", {"message": f"Starting download: {download_item.title}"}
             )
 
-    def _make_ydl_logger(self):
+    def _make_ydl_logger(self, download_item: "DownloadItem | None" = None):
         """Create a yt-dlp compatible logger object."""
         last_logged_percent = [-1]  # list used as mutable container for closure
 
@@ -557,6 +563,9 @@ class DownloadManager:
                             )
                     except Exception:  # pragma: no cover
                         clean_msg = clean_msg.replace("KiB/s", "Kbps")
+
+                if download_item and "has already been downloaded" in clean_msg:
+                    download_item.already_exists = True
 
                 # Filter out excessive download progress lines — only log every 5%
                 if clean_msg.startswith("[download]") and "%" in clean_msg:
@@ -638,13 +647,25 @@ class DownloadManager:
                 else:
                     download_item.speed = speed_str
 
-                eta_str = d.get("_eta_str", "")
-                download_item.eta = ansi_escape.sub("", eta_str).strip()
+                downloaded = d.get("downloaded_bytes", 0)
+                total = d.get("total_bytes", 0) or d.get("total_bytes_estimate", 0)
+                speed = d.get("speed")
+                if speed and speed > 0 and total and total > downloaded:
+                    eta_secs = int((total - downloaded) / speed)
+                    if eta_secs >= 3600:
+                        h = eta_secs // 3600
+                        m = (eta_secs % 3600) // 60
+                        s = eta_secs % 60
+                        download_item.eta = f"{h}:{m:02d}:{s:02d}"
+                    else:
+                        m = eta_secs // 60
+                        s = eta_secs % 60
+                        download_item.eta = f"{m}:{s:02d}"
+                else:
+                    download_item.eta = ""
 
-                download_item.downloaded_bytes = d.get("downloaded_bytes", 0)
-                download_item.total_bytes = d.get("total_bytes", 0) or d.get(
-                    "total_bytes_estimate", 0
-                )
+                download_item.downloaded_bytes = downloaded
+                download_item.total_bytes = total
 
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)
@@ -674,6 +695,7 @@ class DownloadManager:
             "sleep_interval": 1,
             "max_sleep_interval": 5,
             "concurrent_fragment_downloads": 1,
+            "nooverwrites": True,
         }
         # Required for harder n-challenges (e.g. members-only content).
         # Without this, yt-dlp falls back to clients that don't honour browser cookies.
@@ -720,7 +742,7 @@ class DownloadManager:
     def _download_worker(self, download_item: DownloadItem):
         """Coordinator that tries each download strategy in priority order."""
         t0 = time.perf_counter()
-        log_obj = self._make_ydl_logger()
+        log_obj = self._make_ydl_logger(download_item)
         progress_hook = self._make_progress_hook(download_item)
         base_opts = self._build_base_opts(download_item, progress_hook, log_obj)
 
