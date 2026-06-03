@@ -16,6 +16,7 @@ from flowsnip.download_manager import (
     _find_js_runtime,
     _get_js_runtime,
     _get_yt_dlp,
+    _height_to_label,
 )
 
 # ---------------------------------------------------------------------------
@@ -1186,6 +1187,106 @@ def test_process_completed_trims_completed_history(download_manager):
     download_manager.download_tasks[item.id] = future
     download_manager._process_completed_tasks()
     assert len(download_manager.completed_downloads) == MAX_HISTORY
+
+
+# ---------------------------------------------------------------------------
+# _height_to_label
+# ---------------------------------------------------------------------------
+
+
+def test_height_to_label_4k():
+    assert _height_to_label(2160) == "4K"
+
+
+def test_height_to_label_above_4k():
+    assert _height_to_label(4320) == "4K"
+
+
+def test_height_to_label_1440p():
+    assert _height_to_label(1440) == "1440p"
+
+
+def test_height_to_label_1080p():
+    assert _height_to_label(1080) == "1080p"
+
+
+def test_height_to_label_720p():
+    assert _height_to_label(720) == "720p"
+
+
+def test_height_to_label_480p():
+    assert _height_to_label(480) == "480p"
+
+
+def test_height_to_label_360p():
+    assert _height_to_label(360) == "360p"
+
+
+def test_height_to_label_240p():
+    assert _height_to_label(240) == "240p"
+
+
+def test_height_to_label_below_240():
+    assert _height_to_label(144) == "144p"
+
+
+# ---------------------------------------------------------------------------
+# progress hook — resolution capture
+# ---------------------------------------------------------------------------
+
+
+def test_progress_hook_finished_sets_resolution(download_manager, sample_item):
+    hooks = _capture_hooks(download_manager, sample_item)
+    for hook in hooks:
+        hook(
+            {
+                "status": "finished",
+                "filename": "/tmp/test.mp4",
+                "info_dict": {"height": 1080},
+            }
+        )
+    assert sample_item.resolution == "1080p"
+
+
+def test_progress_hook_finished_no_height_leaves_resolution_empty(
+    download_manager, sample_item
+):
+    hooks = _capture_hooks(download_manager, sample_item)
+    for hook in hooks:
+        hook({"status": "finished", "filename": "/tmp/test.mp4"})
+    assert sample_item.resolution == ""
+
+
+# ---------------------------------------------------------------------------
+# completion log message includes resolution
+# ---------------------------------------------------------------------------
+
+
+def test_process_completed_log_includes_resolution(download_manager, mock_callback):
+    item = DownloadItem(url="https://y.com/v=x", title="My Video")
+    item.resolution = "1080p"
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.return_value = None
+    download_manager.active_downloads[item.id] = item
+    download_manager.download_tasks[item.id] = future
+    download_manager._process_completed_tasks()
+    mock_callback.assert_any_call(
+        "log_message", {"message": "Download completed: My Video [1080p]"}
+    )
+
+
+def test_process_completed_log_no_resolution(download_manager, mock_callback):
+    item = DownloadItem(url="https://y.com/v=x", title="My Video")
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.return_value = None
+    download_manager.active_downloads[item.id] = item
+    download_manager.download_tasks[item.id] = future
+    download_manager._process_completed_tasks()
+    mock_callback.assert_any_call(
+        "log_message", {"message": "Download completed: My Video"}
+    )
 
 
 def test_process_completed_trims_failed_history(download_manager):

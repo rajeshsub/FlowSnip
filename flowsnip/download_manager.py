@@ -104,6 +104,24 @@ _AUTH_KEYWORDS = frozenset(
 MAX_HISTORY = 200  # max items kept in completed_downloads / failed_downloads
 
 
+def _height_to_label(height: int) -> str:
+    if height >= 2160:
+        return "4K"
+    if height >= 1440:
+        return "1440p"
+    if height >= 1080:
+        return "1080p"
+    if height >= 720:
+        return "720p"
+    if height >= 480:
+        return "480p"
+    if height >= 360:
+        return "360p"
+    if height >= 240:
+        return "240p"
+    return f"{height}p"
+
+
 class DownloadStatus(Enum):
     """Status of a download item."""
 
@@ -132,6 +150,7 @@ class DownloadItem:
     error_message: str = ""
     retry_count: int = 0
     already_exists: bool = False
+    resolution: str = ""
     output_path: Optional[Path] = None
     created_at: float = field(default_factory=time.time)
     started_at: Optional[float] = None
@@ -465,9 +484,10 @@ class DownloadManager:
                     print(f"Download completed: {download_item.title}")
                     if self.progress_callback:
                         self.progress_callback("download_completed", download_item)
+                        res = f" [{download_item.resolution}]" if download_item.resolution else ""
                         self.progress_callback(
                             "log_message",
-                            {"message": f"Download completed: {download_item.title}"},
+                            {"message": f"Download completed: {download_item.title}{res}"},
                         )
 
                 except Exception as e:
@@ -657,6 +677,9 @@ class DownloadManager:
             elif d["status"] == "finished":
                 download_item.progress = 100.0
                 download_item.output_path = Path(d.get("filename", ""))
+                height = (d.get("info_dict") or {}).get("height") or 0
+                if height:
+                    download_item.resolution = _height_to_label(height)
 
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)
