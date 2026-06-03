@@ -1,6 +1,6 @@
 [project]
 name = "flowsnip"
-version = "0.1.0"
+version = "0.1.2"
 description = "FlowSnip - Download media from YouTube, Vimeo, TikTok, Facebook, Instagram, SoundCloud, Twitter, and Twitch."
 readme = "README.md"
 requires-python = ">=3.11"
