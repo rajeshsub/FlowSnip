@@ -48,6 +48,7 @@ class UIConfig(BaseModel):
     auto_start_downloads: bool = Field(default=True)
     show_progress_details: bool = Field(default=True)
     minimize_to_tray: bool = Field(default=False)
+    auto_remove_completed: bool = Field(default=False)
 
 
 class YtdlConfig(BaseModel):
