@@ -94,6 +94,7 @@ class ProgressFrame(ctk.CTkFrame):
             status_text = f"Status: {download_item.status.value.title()}"
             if download_item.progress > 0 and download_item.status not in [
                 DownloadStatus.COMPLETED,
+                DownloadStatus.SKIPPED,
                 DownloadStatus.FAILED,
             ]:
                 status_text += f" ({download_item.progress:.1f}%)"
@@ -116,7 +117,7 @@ class ProgressFrame(ctk.CTkFrame):
         self.eta_label.configure(text=f"ETA: {eta_display}")
 
         # Update button based on status
-        if download_item.status in [DownloadStatus.COMPLETED, DownloadStatus.CANCELLED]:
+        if download_item.status in [DownloadStatus.COMPLETED, DownloadStatus.SKIPPED, DownloadStatus.CANCELLED]:
             self.cancel_button.configure(text="Remove", command=self.remove_download)
         elif download_item.status == DownloadStatus.FAILED:
             self.cancel_button.configure(text="Retry", command=self.retry_download)
