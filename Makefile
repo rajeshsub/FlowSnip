@@ -1,10 +1,11 @@
-.PHONY: bootstrap test lint help
+.PHONY: bootstrap test lint release help
 
 help:
 	@echo "FlowSnip - Available targets:"
 	@echo "  make bootstrap - Setup development environment (run this first!)"
 	@echo "  make test      - Run tests with coverage"
 	@echo "  make lint      - Lint and format code"
+	@echo "  make release   - Cut a release (e.g. make release v=1.2.3)"
 	@echo "  make help      - Show this help message"
 
 bootstrap:
@@ -32,3 +33,18 @@ test:
 lint:
 	uv run ruff check --fix flowsnip tests
 	uv run ruff format flowsnip tests
+
+release:
+ifndef v
+	$(error Usage: make release v=x.y.z)
+endif
+	@PREV=$$(git describe --tags --abbrev=0 2>/dev/null || echo "none"); \
+	echo "Previous release: $$PREV  →  v$(v)"
+	@python3 -c "import re; f=open('pyproject.toml'); s=f.read(); f.close(); s=re.sub(r'(?m)^version = \"[^\"]+\"', 'version = \"$(v)\"', s); open('pyproject.toml','w').write(s)"
+	@uv sync
+	@git add pyproject.toml uv.lock
+	@git commit -m "chore: bump version to $(v)"
+	@git tag -a v$(v) -m "v$(v)"
+	@git push origin main
+	@git push origin v$(v)
+	@echo "Released v$(v)"
