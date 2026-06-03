@@ -21,14 +21,12 @@ def _make_item(
     status=DownloadStatus.PENDING,
     progress=0.0,
     speed=None,
-    eta=None,
     title="Test Video",
 ):
     item = DownloadItem(url="https://example.com/v=1", title=title)
     item.status = status
     item.progress = progress
     item.speed = speed
-    item.eta = eta
     return item
 
 
@@ -43,7 +41,6 @@ def _make_progress_frame(item=None, manager=_SENTINEL):
     pf.progress_bar = MagicMock()
     pf.status_label = MagicMock()
     pf.speed_label = MagicMock()
-    pf.eta_label = MagicMock()
     pf.cancel_button = MagicMock()
     return pf
 
@@ -64,10 +61,12 @@ def _make_config_frame(config=None):
     cf.parallel_slider = MagicMock()
     cf.parallel_value_label = MagicMock()
     cf.auto_start_var = _CTK_STUB.BooleanVar(value=True)
+    cf.auto_remove_completed_var = _CTK_STUB.BooleanVar(value=False)
     cf.quality_options = {
         "Best Quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
         "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best",
     }
+    cf.quality_var = _CTK_STUB.StringVar(value="Best Quality")
     cf.theme_var = _CTK_STUB.StringVar(value="dark")
     cf.theme_combobox = MagicMock()
     cf.check_flowsnip_var = _CTK_STUB.BooleanVar(value=True)
@@ -145,13 +144,10 @@ def test_progress_frame_init_long_title():
 
 def test_update_progress_downloading_with_progress():
     pf = _make_progress_frame()
-    item = _make_item(
-        status=DownloadStatus.DOWNLOADING, progress=50.0, speed="1 Mbps", eta="01:30"
-    )
+    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, speed="1 Mbps")
     pf.update_progress(item)
     pf.status_label.configure.assert_called()
     pf.speed_label.configure.assert_called()
-    pf.eta_label.configure.assert_called()
 
 
 def test_update_progress_downloading_zero_progress():
@@ -194,37 +190,6 @@ def test_update_progress_failed_button_retry():
     call_kw = pf.cancel_button.configure.call_args[1]
     assert call_kw["text"] == "Retry"
 
-
-def test_update_progress_eta_mm_ss():
-    pf = _make_progress_frame()
-    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="03:45")
-    pf.update_progress(item)
-    call_kw = pf.eta_label.configure.call_args[1]
-    assert "3m" in call_kw["text"] and "45s" in call_kw["text"]
-
-
-def test_update_progress_eta_hh_mm_ss():
-    pf = _make_progress_frame()
-    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="01:02:03")
-    pf.update_progress(item)
-    call_kw = pf.eta_label.configure.call_args[1]
-    assert "1h" in call_kw["text"] and "2m" in call_kw["text"]
-
-
-def test_update_progress_eta_no_colon():
-    pf = _make_progress_frame()
-    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta="unknown")
-    pf.update_progress(item)
-    call_kw = pf.eta_label.configure.call_args[1]
-    assert "unknown" in call_kw["text"]
-
-
-def test_update_progress_eta_none():
-    pf = _make_progress_frame()
-    item = _make_item(status=DownloadStatus.DOWNLOADING, progress=50.0, eta=None)
-    pf.update_progress(item)
-    call_kw = pf.eta_label.configure.call_args[1]
-    assert "--" in call_kw["text"]
 
 
 def test_update_progress_non_downloading_zero_progress_no_suffix():
@@ -1078,6 +1043,47 @@ def test_update_ui_callback_other_events():
         mock_btn.assert_called()
 
 
+def test_update_ui_callback_skipped_schedules_auto_remove():
+    g = _make_gui()
+    item = _make_item(status=DownloadStatus.SKIPPED)
+    with (
+        patch.object(g, "update_progress_frame"),
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_completed", item)
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    assert len(after_calls) == 1
+
+
+def test_update_ui_callback_completed_auto_remove_enabled():
+    g = _make_gui()
+    g.config.ui.auto_remove_completed = True
+    item = _make_item(status=DownloadStatus.COMPLETED)
+    with (
+        patch.object(g, "update_progress_frame"),
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_completed", item)
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    assert len(after_calls) == 1
+
+
+def test_update_ui_callback_completed_auto_remove_disabled():
+    g = _make_gui()
+    g.config.ui.auto_remove_completed = False
+    item = _make_item(status=DownloadStatus.COMPLETED)
+    with (
+        patch.object(g, "update_progress_frame"),
+        patch.object(g, "update_status_display"),
+        patch.object(g, "update_button_states"),
+    ):
+        g._update_ui_callback("download_completed", item)
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    assert len(after_calls) == 0
+
+
 # ---------------------------------------------------------------------------
 # FlowSnipGUI.add_progress_frame
 # ---------------------------------------------------------------------------
@@ -1306,6 +1312,27 @@ def test_cleanup_no_manager():
 # ---------------------------------------------------------------------------
 # ConfigFrame — update settings callbacks
 # ---------------------------------------------------------------------------
+
+
+def test_update_auto_remove_completed_true():
+    cf = _make_config_frame()
+    cf.auto_remove_completed_var.set(True)
+    cf.update_auto_remove_completed()
+    assert cf.config_obj.ui.auto_remove_completed is True
+
+
+def test_update_auto_remove_completed_false():
+    cf = _make_config_frame()
+    cf.auto_remove_completed_var.set(False)
+    cf.update_auto_remove_completed()
+    assert cf.config_obj.ui.auto_remove_completed is False
+
+
+def test_update_ui_from_config_auto_remove_completed():
+    cf = _make_config_frame()
+    cf.config_obj.ui.auto_remove_completed = True
+    cf.update_ui_from_config()
+    assert cf.auto_remove_completed_var.get() is True
 
 
 def test_update_check_flowsnip():

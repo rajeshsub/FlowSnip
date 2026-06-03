@@ -60,12 +60,8 @@ class ProgressFrame(ctk.CTkFrame):
             row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=2
         )
 
-        # Speed and ETA on next row
         self.speed_label = ctk.CTkLabel(self, text="Speed: --", anchor="w")
-        self.speed_label.grid(row=3, column=0, sticky="ew", padx=10, pady=2)
-
-        self.eta_label = ctk.CTkLabel(self, text="ETA: --", anchor="w")
-        self.eta_label.grid(row=3, column=1, sticky="ew", padx=10, pady=2)
+        self.speed_label.grid(row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=2)
 
         # Action buttons
         self.cancel_button = ctk.CTkButton(
@@ -100,21 +96,7 @@ class ProgressFrame(ctk.CTkFrame):
                 status_text += f" ({download_item.progress:.1f}%)"
         self.status_label.configure(text=status_text)
 
-        # Update speed and ETA
         self.speed_label.configure(text=f"Speed: {download_item.speed or '--'}")
-
-        # Format ETA with clearer units
-        eta_display = download_item.eta or "--"
-        if eta_display != "--" and ":" in eta_display:
-            # Parse MM:SS or HH:MM:SS format
-            parts = eta_display.split(":")
-            if len(parts) == 2:
-                # MM:SS format
-                eta_display = f"{parts[0]}m {parts[1]}s"
-            elif len(parts) == 3:
-                # HH:MM:SS format
-                eta_display = f"{parts[0]}h {parts[1]}m {parts[2]}s"
-        self.eta_label.configure(text=f"ETA: {eta_display}")
 
         # Update button based on status
         if download_item.status in [DownloadStatus.COMPLETED, DownloadStatus.SKIPPED, DownloadStatus.CANCELLED]:
@@ -224,6 +206,17 @@ class ConfigFrame(ctk.CTkFrame):
         self.auto_start_checkbox.grid(
             row=row, column=0, columnspan=2, sticky="w", padx=10, pady=5
         )
+        row += 1
+
+        self.auto_remove_completed_var = ctk.BooleanVar(
+            value=self.config_obj.ui.auto_remove_completed
+        )
+        ctk.CTkCheckBox(
+            self,
+            text="Auto-remove completed",
+            variable=self.auto_remove_completed_var,
+            command=self.update_auto_remove_completed,
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=5)
         row += 1
 
         slider_label_frame = ctk.CTkFrame(self)
@@ -495,6 +488,10 @@ class ConfigFrame(ctk.CTkFrame):
         """Update auto-start downloads setting."""
         self.config_obj.ui.auto_start_downloads = self.auto_start_var.get()
 
+    def update_auto_remove_completed(self):
+        """Update auto-remove completed setting."""
+        self.config_obj.ui.auto_remove_completed = self.auto_remove_completed_var.get()
+
     def save_config(self):
         """Save configuration to file."""
         try:
@@ -553,6 +550,7 @@ class ConfigFrame(ctk.CTkFrame):
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.toggle_audio_quality_visibility()
         self.auto_start_var.set(self.config_obj.ui.auto_start_downloads)
+        self.auto_remove_completed_var.set(self.config_obj.ui.auto_remove_completed)
         self.browser_var.set(self.config_obj.download.cookies_from_browser or "Not set")
 
 
@@ -600,7 +598,7 @@ class FlowSnipGUI:
         self.root.geometry(
             f"{self.config.ui.window_width}x{self.config.ui.window_height}"
         )
-        self.root.minsize(800, 600)
+        self.root.minsize(800, 1000)
         self.root.grid_columnconfigure(0, weight=1)
         # row 0: update banner (hidden until needed)
         # row 1: URL bar
@@ -714,7 +712,7 @@ class FlowSnipGUI:
         ctk.CTkLabel(top_frame, text="Media URLs:").grid(
             row=0, column=0, padx=10, pady=10, sticky="n"
         )
-        self.url_textbox = ctk.CTkTextbox(top_frame, height=160, width=320)
+        self.url_textbox = ctk.CTkTextbox(top_frame, height=80, width=320)
         self.url_textbox.grid(row=0, column=1, sticky="ew", padx=10, pady=(10, 0))
         self.url_textbox.insert(
             "1.0",
@@ -1012,6 +1010,17 @@ class FlowSnipGUI:
             "download_failed",
         ]:
             self.update_progress_frame(data)
+            if event_type == "download_completed":
+                if (
+                    data.status == DownloadStatus.SKIPPED
+                    or self.config.ui.auto_remove_completed
+                ):
+                    self.root.after(
+                        1500,
+                        lambda id=data.id: self.download_manager.remove_download(
+                            id, "completed"
+                        ),
+                    )
         elif event_type == "download_cancelled":
             self.remove_progress_frame(data.id)
         elif event_type == "download_removed":

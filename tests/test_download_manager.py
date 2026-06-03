@@ -823,6 +823,13 @@ def test_logger_kib_speed_with_space(download_manager, sample_item):
     logger.debug("Speed: 128.0 KiB/s now")
 
 
+def test_logger_already_downloaded_sets_flag(download_manager, sample_item):
+    logger = _get_logger(download_manager, sample_item)
+    assert sample_item.already_exists is False
+    logger.debug("[download] test.mp4 has already been downloaded")
+    assert sample_item.already_exists is True
+
+
 # ---------------------------------------------------------------------------
 # _download_worker — progress_hook inner function branches
 # ---------------------------------------------------------------------------
@@ -844,7 +851,6 @@ def test_progress_hook_fragment_based(download_manager, sample_item):
                 "fragment_index": 3,
                 "fragment_count": 10,
                 "_speed_str": "5.0 MiB/s",
-                "_eta_str": "0:30",
                 "downloaded_bytes": 3000,
                 "total_bytes": 10000,
             }
@@ -862,7 +868,6 @@ def test_progress_hook_percentage_based(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": " 50.0%",
                 "_speed_str": "500 KiB/s",
-                "_eta_str": "1:00",
                 "downloaded_bytes": 5000,
                 "total_bytes": 0,
                 "total_bytes_estimate": 10000,
@@ -881,7 +886,7 @@ def test_progress_hook_percentage_invalid_falls_to_zero(download_manager, sample
                 "fragment_count": None,
                 "_percent_str": "N/A%",
                 "_speed_str": "",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -899,7 +904,7 @@ def test_progress_hook_mib_speed_conversion(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "2.0 MiB/s",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -917,7 +922,7 @@ def test_progress_hook_mib_speed_invalid(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "N/A MiB/s",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -935,7 +940,7 @@ def test_progress_hook_kib_speed_conversion(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "200.0 KiB/s",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -953,7 +958,7 @@ def test_progress_hook_kib_speed_invalid(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "N/A KiB/s",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -970,7 +975,6 @@ def test_progress_hook_other_speed(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "100 B/s",
-                "_eta_str": "5:00",
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -999,7 +1003,7 @@ def test_progress_hook_no_callback(test_config, sample_item):
                 "fragment_index": 1,
                 "fragment_count": 5,
                 "_speed_str": "",
-                "_eta_str": "",
+
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }

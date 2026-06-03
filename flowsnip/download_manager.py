@@ -126,7 +126,6 @@ class DownloadItem:
     status: DownloadStatus = DownloadStatus.PENDING
     progress: float = 0.0
     speed: str = ""
-    eta: str = ""
     file_size: str = ""
     downloaded_bytes: int = 0
     total_bytes: int = 0
@@ -647,25 +646,10 @@ class DownloadManager:
                 else:
                     download_item.speed = speed_str
 
-                downloaded = d.get("downloaded_bytes", 0)
-                total = d.get("total_bytes", 0) or d.get("total_bytes_estimate", 0)
-                speed = d.get("speed")
-                if speed and speed > 0 and total and total > downloaded:
-                    eta_secs = int((total - downloaded) / speed)
-                    if eta_secs >= 3600:
-                        h = eta_secs // 3600
-                        m = (eta_secs % 3600) // 60
-                        s = eta_secs % 60
-                        download_item.eta = f"{h}:{m:02d}:{s:02d}"
-                    else:
-                        m = eta_secs // 60
-                        s = eta_secs % 60
-                        download_item.eta = f"{m}:{s:02d}"
-                else:
-                    download_item.eta = ""
-
-                download_item.downloaded_bytes = downloaded
-                download_item.total_bytes = total
+                download_item.downloaded_bytes = d.get("downloaded_bytes", 0)
+                download_item.total_bytes = (
+                    d.get("total_bytes", 0) or d.get("total_bytes_estimate", 0)
+                )
 
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)

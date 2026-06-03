@@ -55,6 +55,7 @@ def test_ui_config_defaults():
     assert cfg.auto_start_downloads is True
     assert cfg.show_progress_details is True
     assert cfg.minimize_to_tray is False
+    assert cfg.auto_remove_completed is False
 
 
 def test_ytdl_config_defaults():
