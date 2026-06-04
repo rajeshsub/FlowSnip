@@ -5,13 +5,15 @@ This module handles command-line argument parsing, configuration loading,
 and application startup.
 """
 
+from __future__ import annotations
+
 import sys
 import threading
 import webbrowser
 from datetime import datetime, timezone
+from pathlib import Path
 
-from flowsnip import __version__
-from flowsnip import updater
+from flowsnip import __version__, updater
 from flowsnip.config import Config, create_arg_parser, get_default_config_path
 from flowsnip.gui import FlowSnipGUI
 
@@ -30,7 +32,7 @@ def _apply_ytdlp_update(app: FlowSnipGUI, new_ytdlp: str) -> None:
     )
 
 
-def _run_update_checks(app: FlowSnipGUI, config: Config, config_path) -> None:
+def _run_update_checks(app: FlowSnipGUI, config: Config, config_path: Path | str) -> None:
     """Background thread: check for FlowSnip and yt-dlp updates."""
     cfg = config.updates
 
@@ -73,7 +75,7 @@ def _run_update_checks(app: FlowSnipGUI, config: Config, config_path) -> None:
     config.save_to_file(config_path)
 
 
-def main():
+def main() -> int:
     """Main entry point for the application."""
     try:
         parser = create_arg_parser()

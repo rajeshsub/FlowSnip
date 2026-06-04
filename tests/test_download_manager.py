@@ -1,7 +1,7 @@
 """Tests for flowsnip/download_manager.py — targets 100% line coverage."""
 
 import os
-import time
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1021,45 +1021,44 @@ def test_progress_hook_no_callback(test_config, sample_item):
 def test_queue_manager_completes_download(test_config, mock_callback):
     """Item queued after start_downloads ends up in completed_downloads."""
     test_config.download.retry_attempts = 1
+    done = threading.Event()
 
-    def fast_worker(self_or_item, item=None):
-        pass  # instant success — handles both bound and unbound call styles
+    def on_callback(event_type, data):
+        if event_type in ("download_completed", "download_failed"):
+            done.set()
+
+    def fast_worker(item):
+        pass  # instant success
 
     with patch.object(DownloadManager, "_download_worker", fast_worker):
-        mgr = DownloadManager(test_config, mock_callback)
+        mgr = DownloadManager(test_config, on_callback)
         mgr.start_downloads()
         item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
         mgr.pending_queue.put(item)
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            if mgr.completed_downloads or mgr.failed_downloads:
-                break
-            time.sleep(0.05)
+        assert done.wait(timeout=5.0), "Download did not complete within 5 s"
         mgr.stop_downloads()
 
-    all_items = mgr.completed_downloads + mgr.failed_downloads
-    assert len(all_items) >= 1
+    assert len(mgr.completed_downloads) + len(mgr.failed_downloads) >= 1
 
 
 def test_queue_manager_retries_then_fails(test_config, mock_callback):
     """Item that always raises eventually lands in failed_downloads."""
     test_config.download.retry_attempts = 1
-    call_count = [0]
+    done = threading.Event()
+
+    def on_callback(event_type, data):
+        if event_type == "download_failed":
+            done.set()
 
     def failing_worker(item):
-        call_count[0] += 1
         raise Exception("download broke")
 
-    mgr = DownloadManager(test_config, mock_callback)
+    mgr = DownloadManager(test_config, on_callback)
     with patch.object(mgr, "_download_worker", side_effect=failing_worker):
         mgr.start_downloads()
         item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
         mgr.pending_queue.put(item)
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            if mgr.failed_downloads:
-                break
-            time.sleep(0.05)
+        assert done.wait(timeout=5.0), "Download did not fail within 5 s"
         mgr.stop_downloads()
 
     assert len(mgr.failed_downloads) == 1
@@ -1067,12 +1066,20 @@ def test_queue_manager_retries_then_fails(test_config, mock_callback):
 
 
 def test_queue_manager_paused_does_not_consume(download_manager):
+    started = threading.Event()
+    original_start = download_manager._start_download
+
+    def spy(item):
+        started.set()
+        original_start(item)
+
+    download_manager._start_download = spy
     download_manager.start_downloads()
     download_manager.pause_downloads()
     item = DownloadItem(url="https://youtube.com/watch?v=test", title="T")
     download_manager.pending_queue.put(item)
-    time.sleep(0.3)
-    # Item should still be in queue since manager is paused
+    # Wait longer than one queue cycle (500 ms); started must not fire
+    assert not started.wait(timeout=0.8), "Item was consumed despite being paused"
     assert download_manager.pending_queue.qsize() == 1
 
 
@@ -1194,40 +1201,22 @@ def test_process_completed_trims_completed_history(download_manager):
 # ---------------------------------------------------------------------------
 
 
-def test_height_to_label_4k():
-    assert _height_to_label(2160) == "4K"
-
-
-def test_height_to_label_above_4k():
-    assert _height_to_label(4320) == "4K"
-
-
-def test_height_to_label_1440p():
-    assert _height_to_label(1440) == "1440p"
-
-
-def test_height_to_label_1080p():
-    assert _height_to_label(1080) == "1080p"
-
-
-def test_height_to_label_720p():
-    assert _height_to_label(720) == "720p"
-
-
-def test_height_to_label_480p():
-    assert _height_to_label(480) == "480p"
-
-
-def test_height_to_label_360p():
-    assert _height_to_label(360) == "360p"
-
-
-def test_height_to_label_240p():
-    assert _height_to_label(240) == "240p"
-
-
-def test_height_to_label_below_240():
-    assert _height_to_label(144) == "144p"
+@pytest.mark.parametrize(
+    "height, expected",
+    [
+        (4320, "4K"),
+        (2160, "4K"),
+        (1440, "1440p"),
+        (1080, "1080p"),
+        (720, "720p"),
+        (480, "480p"),
+        (360, "360p"),
+        (240, "240p"),
+        (144, "144p"),
+    ],
+)
+def test_height_to_label(height, expected):
+    assert _height_to_label(height) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1304,3 +1293,236 @@ def test_process_completed_trims_failed_history(download_manager):
     download_manager.download_tasks[item.id] = future
     download_manager._process_completed_tasks()
     assert len(download_manager.failed_downloads) == MAX_HISTORY
+
+
+# ---------------------------------------------------------------------------
+# Branch coverage — no-callback paths and edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_extract_title_browser_cookies_no_js_runtime(download_manager):
+    download_manager.config.download.cookies_from_browser = "chrome"
+    with patch("flowsnip.download_manager._get_js_runtime", return_value=None):
+        factory = _make_ytdl(title="Video")
+        with patch("yt_dlp.YoutubeDL", side_effect=factory):
+            result = download_manager._extract_title("https://youtube.com/watch?v=test")
+    assert result == "Video"
+    assert "js_runtimes" not in factory.captured.get("opts", {})
+    download_manager.config.download.cookies_from_browser = None
+
+
+def test_add_download_invalid_url_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    result = mgr.add_download("not-a-url")
+    assert result == ""
+    mgr.stop_downloads()
+
+
+def test_add_download_error_title_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    with patch.object(mgr, "_extract_title", return_value="__error__:some error"):
+        result = mgr.add_download("https://example.com/video")
+    assert result != ""
+    mgr.stop_downloads()
+
+
+def test_pause_downloads_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    mgr.start_downloads()
+    mgr.pause_downloads()
+    assert mgr.is_paused
+    mgr.stop_downloads()
+
+
+def test_resume_downloads_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    mgr.is_paused = True
+    mgr.resume_downloads()
+    assert not mgr.is_paused
+    mgr.stop_downloads()
+
+
+def test_stop_downloads_active_without_task(test_config, mock_callback):
+    mgr = DownloadManager(test_config, mock_callback)
+    item = DownloadItem(url="https://example.com", title="Test")
+    mgr.active_downloads[item.id] = item  # active but NOT in download_tasks
+    mgr.stop_downloads()
+    assert len(mgr.active_downloads) == 0
+
+
+def test_cancel_download_no_callback(test_config, sample_item):
+    mgr = DownloadManager(test_config)
+    mgr.active_downloads[sample_item.id] = sample_item
+    mgr.cancel_download(sample_item.id)
+    assert sample_item.id not in mgr.active_downloads
+    mgr.stop_downloads()
+
+
+def test_retry_download_iterates_past_non_matching_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    other = DownloadItem(url="https://example.com/other", title="Other")
+    item = DownloadItem(url="https://example.com/video", title="Target")
+    item.status = DownloadStatus.FAILED
+    mgr.failed_downloads = [other, item]  # item is second — forces loop to iterate past other
+    mgr.retry_download(item.id)
+    assert item not in mgr.failed_downloads
+    assert mgr.pending_queue.qsize() == 1
+    mgr.stop_downloads()
+
+
+def test_remove_download_unknown_queue(test_config, mock_callback):
+    mgr = DownloadManager(test_config, mock_callback)
+    mgr.remove_download("some-id", from_queue="unknown")
+    mock_callback.assert_called_with(
+        "download_removed", {"id": "some-id", "queue": "unknown"}
+    )
+    mgr.stop_downloads()
+
+
+def test_remove_download_no_callback(test_config, sample_item):
+    mgr = DownloadManager(test_config)
+    mgr.failed_downloads = [sample_item]
+    mgr.remove_download(sample_item.id)
+    assert sample_item not in mgr.failed_downloads
+    mgr.stop_downloads()
+
+
+def test_process_completed_task_not_in_active(test_config, mock_callback):
+    mgr = DownloadManager(test_config, mock_callback)
+    future = MagicMock()
+    future.done.return_value = True
+    mgr.download_tasks["ghost-id"] = future  # task exists but NOT in active_downloads
+    mgr._process_completed_tasks()
+    assert "ghost-id" not in mgr.download_tasks
+    mgr.stop_downloads()
+
+
+def test_process_completed_success_no_callback(test_config):
+    mgr = DownloadManager(test_config)
+    item = DownloadItem(url="https://y.com/v=x", title="T")
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.return_value = None
+    mgr.active_downloads[item.id] = item
+    mgr.download_tasks[item.id] = future
+    mgr._process_completed_tasks()
+    assert item.status == DownloadStatus.COMPLETED
+    mgr.stop_downloads()
+
+
+def test_process_completed_retry_no_callback(test_config):
+    mgr = DownloadManager(test_config)  # retry_attempts=1 from fixture
+    item = DownloadItem(url="https://y.com/v=x", title="T")
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.side_effect = Exception("fail")
+    mgr.active_downloads[item.id] = item
+    mgr.download_tasks[item.id] = future
+    mgr._process_completed_tasks()
+    assert item.retry_count == 1
+    assert mgr.pending_queue.qsize() == 1
+    mgr.stop_downloads()
+
+
+def test_process_completed_failed_no_callback(test_config):
+    test_config.download.retry_attempts = 0
+    mgr = DownloadManager(test_config)
+    item = DownloadItem(url="https://y.com/v=x", title="T")
+    item.retry_count = 1  # exceeds retry_attempts=0
+    future = MagicMock()
+    future.done.return_value = True
+    future.result.side_effect = Exception("fail")
+    mgr.active_downloads[item.id] = item
+    mgr.download_tasks[item.id] = future
+    mgr._process_completed_tasks()
+    assert item.status == DownloadStatus.FAILED
+    mgr.stop_downloads()
+
+
+def test_start_download_no_callback(test_config, sample_item):
+    mgr = DownloadManager(test_config)
+    mgr._start_download(sample_item)
+    assert sample_item.status == DownloadStatus.DOWNLOADING
+    mgr.stop_downloads()
+
+
+def test_ydl_logger_download_percent_parse_error_no_callback(test_config, sample_item):
+    mgr = DownloadManager(test_config)  # no callback
+    log_obj = mgr._make_ydl_logger(sample_item)
+    log_obj.debug("[download] abc% of 10MB")  # "abc" can't be parsed as float
+
+
+def test_queue_manager_exits_immediately_when_not_running(test_config, mock_callback):
+    mgr = DownloadManager(test_config, mock_callback)
+    # is_running is False by default — while condition fails immediately
+    mgr._queue_manager()
+    mgr.stop_downloads()
+
+
+def test_progress_hook_unknown_status(download_manager, sample_item):
+    hook = download_manager._make_progress_hook(sample_item)
+    hook({"status": "error"})  # neither "downloading" nor "finished" — no-op
+
+
+def test_build_base_opts_add_metadata_disabled(download_manager, sample_item):
+    download_manager.config.ytdl.add_metadata = False
+    progress_hook = download_manager._make_progress_hook(sample_item)
+    log_obj = download_manager._make_ydl_logger(sample_item)
+    opts = download_manager._build_base_opts(sample_item, progress_hook, log_obj)
+    assert "addmetadata" not in opts
+    download_manager.config.ytdl.add_metadata = True
+
+
+def test_worker_strategy_a_db_error_no_callback(test_config, sample_item):
+    test_config.download.cookies_from_browser = "chrome"
+    mgr = DownloadManager(test_config)  # no callback
+    call_count = [0]
+
+    def factory(opts):
+        call_count[0] += 1
+        instance = MagicMock()
+        instance.__enter__ = lambda s: instance
+        instance.__exit__ = MagicMock(return_value=False)
+        if call_count[0] == 1:
+            instance.download = MagicMock(side_effect=Exception("could not copy database"))
+        else:
+            instance.download = MagicMock()
+        return instance
+
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
+        mgr._download_worker(sample_item)
+    test_config.download.cookies_from_browser = None
+    mgr.stop_downloads()
+
+
+def test_worker_strategy_c_no_callback(test_config, sample_item):
+    test_config.download.cookies_file = "/tmp/cookies.txt"
+    mgr = DownloadManager(test_config)  # no callback
+    call_count = [0]
+
+    def factory(opts):
+        call_count[0] += 1
+        instance = MagicMock()
+        instance.__enter__ = lambda s: instance
+        instance.__exit__ = MagicMock(return_value=False)
+        if call_count[0] == 1:
+            instance.download = MagicMock(side_effect=Exception("sign in to confirm"))
+        else:
+            instance.download = MagicMock()
+        return instance
+
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
+        mgr._download_worker(sample_item)
+    test_config.download.cookies_file = None
+    mgr.stop_downloads()
+
+
+def test_del_no_executor(test_config):
+    mgr = DownloadManager(test_config)
+    mgr.is_running = True
+    saved_executor = mgr.executor
+    del mgr.executor  # remove the attribute to trigger hasattr() False branch
+    mgr.__del__()  # must not raise
+    mgr.executor = saved_executor  # restore so cleanup doesn't fail
+    mgr.is_running = False
+    mgr.stop_downloads()

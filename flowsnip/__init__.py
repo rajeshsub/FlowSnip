@@ -5,7 +5,10 @@ This package provides a comprehensive interface for managing video downloads
 with features like parallel processing, queue management, and error handling.
 """
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from __future__ import annotations
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 try:
     __version__ = _pkg_version("flowsnip")
