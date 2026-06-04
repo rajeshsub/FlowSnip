@@ -266,3 +266,20 @@ def test_create_arg_parser_all_flags(temp_dir):
     assert args.theme == "light"
     assert args.audio_only is True
     assert args.max_parallel == 3
+
+
+# ---------------------------------------------------------------------------
+# _convert_paths_to_strings — branch coverage
+# ---------------------------------------------------------------------------
+
+
+def test_config_convert_paths_non_container():
+    cfg = Config()
+    cfg._convert_paths_to_strings(42)  # neither dict nor list — no-op
+
+
+def test_config_convert_paths_list_with_scalar_item():
+    cfg = Config()
+    obj = ["plain_string", 42, None]
+    cfg._convert_paths_to_strings(obj)
+    assert obj == ["plain_string", 42, None]

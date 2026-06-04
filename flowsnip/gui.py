@@ -5,13 +5,13 @@ Provides a modern, polished interface for managing video downloads with
 queue management, progress tracking, and configuration options.
 """
 
+from __future__ import annotations
+
 import platform
 import sys
 import time
-import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import Dict, Optional
 
 import customtkinter as ctk
 
@@ -111,20 +111,13 @@ class ProgressFrame(ctk.CTkFrame):
 
     def remove_download(self):
         """Remove this download from the list."""
-        print(f"ProgressFrame.remove_download called for {self.download_item.id}")
-        print(f"Download status: {self.download_item.status}")
-
         if self.download_manager:
-            print("Found download_manager")
             queue = (
                 "failed"
                 if self.download_item.status == DownloadStatus.FAILED
                 else "completed"
             )
-            print(f"Calling remove_download with queue={queue}")
             self.download_manager.remove_download(self.download_item.id, queue)
-        else:
-            print("ERROR: No download_manager found!")
 
     def retry_download(self):
         """Retry a failed download."""
@@ -573,8 +566,8 @@ class FlowSnipGUI:
         """Initialize the GUI application."""
         self.config = config
         self.download_manager = DownloadManager(config, self.progress_callback)
-        self.progress_frames: Dict[str, ProgressFrame] = {}
-        self._last_ui_update: Dict[str, float] = {}
+        self.progress_frames: dict[str, ProgressFrame] = {}
+        self._last_ui_update: dict[str, float] = {}
         self._log_line_count = 0
 
         # Setup the main window
@@ -687,20 +680,16 @@ class FlowSnipGUI:
 
     def setup_ui(self):
         """Setup the user interface — URL bar first, rest deferred."""
-        t0 = time.perf_counter()
         self._setup_url_bar()
         self.root.after(0, self._finish_ui_setup)
-        print(f"[timing] setup_ui initial: {time.perf_counter() - t0:.3f}s")
 
     def _finish_ui_setup(self):
         """Complete UI setup scheduled after the initial frame renders."""
-        t0 = time.perf_counter()
         self._setup_update_banner()
         self._setup_sidebar()
         self._setup_downloads_area()
         self._setup_log_panel()
         self.update_button_states()
-        print(f"[timing] setup_ui complete: {time.perf_counter() - t0:.3f}s")
 
     def _setup_url_bar(self):
         """Build the top URL input bar with action buttons."""
@@ -854,10 +843,12 @@ class FlowSnipGUI:
             messagebox.showwarning("Warning", "No valid URLs found")  # pragma: no cover
 
     def _clear_url_placeholder(self):
+        """Remove placeholder text when the user focuses the URL input box."""
         if self.url_textbox.get("1.0", "end").strip().startswith("Enter one media"):
             self.url_textbox.delete("1.0", "end")
 
     def _restore_url_placeholder(self):
+        """Restore placeholder text when the URL input box is left empty."""
         if not self.url_textbox.get("1.0", "end").strip():
             self.url_textbox.insert(
                 "1.0",
@@ -915,23 +906,21 @@ class FlowSnipGUI:
 
         if urls_text and urls_text != "Enter one video URL per line":
             urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
+            self.url_textbox.delete("1.0", "end")
+            self.start_button.configure(state="disabled", text="Adding...")
 
-            if urls:
-                self.url_textbox.delete("1.0", "end")
-                self.start_button.configure(state="disabled", text="Adding...")
+            import threading
 
-                import threading
+            def add_urls_async():
+                self.download_manager.add_multiple_downloads(urls)
+                self.root.after(
+                    0,
+                    lambda: self.start_button.configure(
+                        state="normal", text="Start"
+                    ),
+                )
 
-                def add_urls_async():
-                    self.download_manager.add_multiple_downloads(urls)
-                    self.root.after(
-                        0,
-                        lambda: self.start_button.configure(
-                            state="normal", text="Start"
-                        ),
-                    )
-
-                threading.Thread(target=add_urls_async, daemon=True).start()
+            threading.Thread(target=add_urls_async, daemon=True).start()
 
         if not self.download_manager.is_running:
             self.download_manager.start_downloads()
@@ -1053,9 +1042,6 @@ class FlowSnipGUI:
 
     def remove_progress_frame(self, download_id: str):
         """Remove a progress frame."""
-        print(f"GUI: Removing progress frame for {download_id}")
-        print(f"Current progress_frames keys: {list(self.progress_frames.keys())}")
-
         if download_id in self.progress_frames:
             self.progress_frames[download_id].destroy()
             del self.progress_frames[download_id]
@@ -1103,8 +1089,7 @@ class FlowSnipGUI:
         try:
             self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
             self.root.mainloop()
-        except Exception as e:
-            print(f"GUI error: {e}")
+        except Exception:
             self.cleanup()
 
     def on_closing(self):
@@ -1129,8 +1114,8 @@ class FlowSnipGUI:
 
             self.config.save_to_file(get_default_config_path())
 
-        except Exception as e:
-            print(f"Error during cleanup: {e}")
+        except Exception:
+            pass
         finally:
             self.root.destroy()
 

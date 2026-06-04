@@ -5,11 +5,13 @@ Handles loading, saving, and validation of application settings using Pydantic.
 Supports both file-based configuration and command-line overrides.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
@@ -26,12 +28,12 @@ class DownloadConfig(BaseModel):
     audio_only: bool = Field(default=False)
     audio_quality: str = Field(default="best")
     retry_attempts: int = Field(default=2, ge=1, le=5)
-    cookies_file: Optional[str] = Field(default=None)
-    cookies_from_browser: Optional[str] = Field(default=None)
+    cookies_file: str | None = Field(default=None)
+    cookies_from_browser: str | None = Field(default=None)
 
     @field_validator("download_directory")
     @classmethod
-    def validate_download_directory(cls, v):
+    def validate_download_directory(cls, v: Path | str) -> Path:
         """Ensure download directory exists."""
         if isinstance(v, str):
             v = Path(v)  # pragma: no cover
@@ -59,7 +61,7 @@ class YtdlConfig(BaseModel):
     write_description: bool = Field(default=False)
     embed_subs: bool = Field(default=False)
     add_metadata: bool = Field(default=True)
-    custom_args: List[str] = Field(default_factory=list)
+    custom_args: list[str] = Field(default_factory=list)
 
 
 class UpdateConfig(BaseModel):
@@ -68,11 +70,11 @@ class UpdateConfig(BaseModel):
     check_flowsnip: bool = Field(default=True)
     check_ytdlp: bool = Field(default=True)
     frequency: str = Field(default="daily")
-    last_checked: Optional[datetime] = Field(default=None)
+    last_checked: datetime | None = Field(default=None)
 
     @field_validator("frequency")
     @classmethod
-    def validate_frequency(cls, v):
+    def validate_frequency(cls, v: str) -> str:
         allowed = {"every_launch", "daily", "weekly", "never"}
         if v not in allowed:
             raise ValueError(f"frequency must be one of {allowed}")
@@ -93,7 +95,7 @@ class Config(BaseSettings):
         "case_sensitive": False,
     }
 
-    def save_to_file(self, config_path: Union[str, Path]) -> None:
+    def save_to_file(self, config_path: str | Path) -> None:
         """Save configuration to a JSON file."""
         config_path = Path(config_path)
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,7 +108,7 @@ class Config(BaseSettings):
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
 
     @classmethod
-    def load_from_file(cls, config_path: Union[str, Path]) -> "Config":
+    def load_from_file(cls, config_path: str | Path) -> Config:
         """Load configuration from a JSON file."""
         config_path = Path(config_path)
 
@@ -118,7 +120,7 @@ class Config(BaseSettings):
 
         return cls(**config_data)
 
-    def _convert_paths_to_strings(self, obj: Union[Dict, List, Any]) -> None:
+    def _convert_paths_to_strings(self, obj: dict | list | Any) -> None:
         """Recursively convert Path objects to strings for JSON serialization."""
         if isinstance(obj, dict):
             for key, value in obj.items():

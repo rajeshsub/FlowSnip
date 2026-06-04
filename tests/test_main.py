@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from flowsnip.main import _apply_ytdlp_update, _run_update_checks, main
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -49,7 +48,7 @@ def test_main_gui_path():
         patch("flowsnip.main.get_default_config_path", return_value=Path("cfg.json")),
         patch("flowsnip.main.Config.load_from_file") as mock_load,
         patch("flowsnip.main.FlowSnipGUI", return_value=mock_app),
-        patch("flowsnip.main.threading.Thread") as MockThread,
+        patch("flowsnip.main.threading.Thread"),
     ):
         mock_parser = MagicMock()
         mock_parser.parse_args.return_value = mock_args

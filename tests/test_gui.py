@@ -13,6 +13,21 @@ from flowsnip.download_manager import DownloadItem, DownloadStatus  # noqa: E402
 from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame  # noqa: E402
 
 # ---------------------------------------------------------------------------
+# Constants (avoid repeating magic strings and numbers throughout tests)
+# ---------------------------------------------------------------------------
+
+_QUALITY_BEST = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+_QUALITY_1080P = (
+    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
+    "/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best"
+)
+_LOG_LINE_LIMIT = 1000
+_AUTO_REMOVE_DELAY_MS = 1500
+_THROTTLE_THRESHOLD_S = 0.1
+_STATS_POLL_ACTIVE_MS = 1000
+_STATS_POLL_IDLE_MS = 5000
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -63,8 +78,8 @@ def _make_config_frame(config=None):
     cf.auto_start_var = _CTK_STUB.BooleanVar(value=True)
     cf.auto_remove_completed_var = _CTK_STUB.BooleanVar(value=False)
     cf.quality_options = {
-        "Best Quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
-        "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best",
+        "Best Quality": _QUALITY_BEST,
+        "1080p": _QUALITY_1080P,
     }
     cf.quality_var = _CTK_STUB.StringVar(value="Best Quality")
     cf.theme_var = _CTK_STUB.StringVar(value="dark")
@@ -338,10 +353,7 @@ def test_flowsnipgui_init(temp_dir):
 def test_config_frame_setup_ui_quality_match(temp_dir):
     config = Config()
     config.download.download_directory = temp_dir
-    config.download.video_quality = (
-        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
-        "/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best"
-    )
+    config.download.video_quality = _QUALITY_1080P
     cf = ConfigFrame.__new__(ConfigFrame)
     cf.config_obj = config
     cf.setup_ui()
@@ -728,7 +740,7 @@ def test_log_message_under_limit():
 
 def test_log_message_over_limit():
     g = _make_gui()
-    g._log_line_count = 1001
+    g._log_line_count = _LOG_LINE_LIMIT + 1
     g.log_message("hello")
     g.log_textbox.delete.assert_called()
 
@@ -780,17 +792,13 @@ def test_start_downloads_with_urls_not_running():
     g = _make_gui()
     g.url_textbox.get.return_value = "https://youtube.com/watch?v=abc"
     g.download_manager.is_running = False
-    import threading as _t
 
-    orig_thread = _t.Thread
+    def sync_thread(*, target=None, daemon=True, **kw):
+        stub = MagicMock()
+        stub.start = target or (lambda: None)
+        return stub
 
-    def capture_thread(**kw):
-        t = orig_thread(**kw)
-        t.start()
-        t.join(timeout=2)
-        return MagicMock()  # stub: caller's .start() must not re-start the thread
-
-    with patch("threading.Thread", side_effect=capture_thread):
+    with patch("threading.Thread", side_effect=sync_thread):
         g.start_downloads()
     g.download_manager.add_multiple_downloads.assert_called_once()
     g.download_manager.start_downloads.assert_called_once()
@@ -847,17 +855,13 @@ def test_pause_downloads_when_paused():
 
 def test_stop_downloads():
     g = _make_gui()
-    import threading as _t
 
-    orig_thread = _t.Thread
+    def sync_thread(*, target=None, daemon=True, **kw):
+        stub = MagicMock()
+        stub.start = target or (lambda: None)
+        return stub
 
-    def capture_thread(**kw):
-        t = orig_thread(**kw)
-        t.start()
-        t.join(timeout=2)
-        return MagicMock()  # stub: caller's .start() must not re-start the thread
-
-    with patch("threading.Thread", side_effect=capture_thread):
+    with patch("threading.Thread", side_effect=sync_thread):
         g.stop_downloads()
     g.download_manager.stop_downloads.assert_called_once()
 
@@ -1052,7 +1056,7 @@ def test_update_ui_callback_skipped_schedules_auto_remove():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
     assert len(after_calls) == 1
 
 
@@ -1066,7 +1070,7 @@ def test_update_ui_callback_completed_auto_remove_enabled():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
     assert len(after_calls) == 1
 
 
@@ -1080,7 +1084,7 @@ def test_update_ui_callback_completed_auto_remove_disabled():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == 1500]
+    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
     assert len(after_calls) == 0
 
 
@@ -1226,7 +1230,7 @@ def test_update_stats():
     g.stats_labels["completed"].configure.assert_called_with(text="3")
     g.stats_labels["failed"].configure.assert_called_with(text="4")
     g.stats_labels["total"].configure.assert_called_with(text="10")
-    g.root.after.assert_called_with(1000, g.update_stats)  # active → 1 s
+    g.root.after.assert_called_with(_STATS_POLL_ACTIVE_MS, g.update_stats)  # active
 
 
 def test_update_stats_idle():
@@ -1238,7 +1242,7 @@ def test_update_stats_idle():
         "failed_count": 0,
     }
     g.update_stats()
-    g.root.after.assert_called_with(5000, g.update_stats)  # idle → 5 s
+    g.root.after.assert_called_with(_STATS_POLL_IDLE_MS, g.update_stats)  # idle
 
 
 # ---------------------------------------------------------------------------
@@ -1455,3 +1459,44 @@ def test_set_window_icon_exception_swallowed():
         mock_rp.return_value = p
         g.root.wm_iconbitmap.side_effect = Exception("no display")
         g._set_window_icon()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Branch coverage — edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_show_section_unknown():
+    g = _make_gui()
+    g.show_section("Unknown")  # no match — all sections hidden, no crash
+
+
+def test_flowsnipgui_init_no_auto_start(temp_dir):
+    config = Config()
+    config.download.download_directory = temp_dir
+    config.ui.auto_start_downloads = False
+    with patch("flowsnip.gui.DownloadManager") as MockDM:
+        mock_dm = MagicMock()
+        mock_dm.is_running = False
+        mock_dm.is_paused = False
+        mock_dm.get_queue_status.return_value = {
+            "active_count": 0,
+            "pending_count": 0,
+            "completed_count": 0,
+            "failed_count": 0,
+        }
+        MockDM.return_value = mock_dm
+        FlowSnipGUI(config)
+    mock_dm.start_downloads.assert_not_called()
+
+
+
+def test_update_ui_callback_unhandled_event():
+    g = _make_gui()
+    with (
+        patch.object(g, "update_status_display") as mock_status,
+        patch.object(g, "update_button_states") as mock_btn,
+    ):
+        g._update_ui_callback("downloads_paused", None)
+    mock_status.assert_called()
+    mock_btn.assert_called()

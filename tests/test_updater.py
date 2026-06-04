@@ -2,13 +2,9 @@
 
 import json
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from flowsnip import updater
-
 
 # ---------------------------------------------------------------------------
 # _fetch_latest_tag

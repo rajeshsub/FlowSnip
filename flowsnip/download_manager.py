@@ -4,6 +4,8 @@ Download manager for FlowSnip.
 Handles parallel downloads, queue management, and error handling for yt-dlp operations.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import threading
@@ -13,11 +15,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
+if TYPE_CHECKING:
+    from .config import Config
 
-def _find_js_runtime() -> Optional[dict]:
+
+def _find_js_runtime() -> dict | None:
     """Find a JS runtime for yt-dlp's n-challenge solver.
 
     Returns a js_runtimes dict suitable for yt-dlp (e.g. {"node": {"path": "..."}}),
@@ -25,18 +30,14 @@ def _find_js_runtime() -> Optional[dict]:
 
     Set FLOWSNIP_NODE_PATH=/path/to/node to override automatic detection.
     """
-    t0 = time.perf_counter()
-
     # Explicit override via environment variable
     explicit = os.environ.get("FLOWSNIP_NODE_PATH")
     if explicit and os.path.isfile(explicit):
-        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
         return {"node": {"path": explicit}}
 
     # Prefer Node.js — check PATH first, then common Windows install locations.
     node = shutil.which("node") or shutil.which("nodejs")
     if node:
-        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
         return {"node": {"path": node}}
 
     for candidate in [
@@ -45,16 +46,13 @@ def _find_js_runtime() -> Optional[dict]:
         os.path.expanduser(r"~\AppData\Roaming\nvm\current\node.exe"),
     ]:
         if os.path.exists(candidate):
-            print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
             return {"node": {"path": candidate}}
 
     # Deno as a fallback
     deno = shutil.which("deno")
     if deno:
-        print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
         return {"deno": {"path": deno}}
 
-    print(f"[timing] _find_js_runtime: {time.perf_counter() - t0:.3f}s")
     return None
 
 
@@ -64,7 +62,7 @@ _JS_RUNTIME = _UNSET  # populated on first download via _get_js_runtime()
 _yt_dlp_module = None  # populated on first download via _get_yt_dlp()
 
 
-def _get_yt_dlp():
+def _get_yt_dlp() -> Any:
     """Return the yt_dlp module, importing it on the first call."""
     global _yt_dlp_module
     if _yt_dlp_module is None:
@@ -74,12 +72,12 @@ def _get_yt_dlp():
     return _yt_dlp_module
 
 
-def _get_js_runtime():
+def _get_js_runtime() -> dict | None:
     """Return the JS runtime dict (or None), detecting it on the first call."""
     global _JS_RUNTIME
     if _JS_RUNTIME is _UNSET:
         _JS_RUNTIME = _find_js_runtime()
-    return _JS_RUNTIME
+    return _JS_RUNTIME  # type: ignore[return-value]
 
 
 # Keywords that indicate a video requires authentication
@@ -105,6 +103,7 @@ MAX_HISTORY = 200  # max items kept in completed_downloads / failed_downloads
 
 
 def _height_to_label(height: int) -> str:
+    """Convert pixel height to a human-readable resolution label."""
     if height >= 2160:
         return "4K"
     if height >= 1440:
@@ -151,10 +150,10 @@ class DownloadItem:
     retry_count: int = 0
     already_exists: bool = False
     resolution: str = ""
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
     created_at: float = field(default_factory=time.time)
-    started_at: Optional[float] = None
-    completed_at: Optional[float] = None
+    started_at: float | None = None
+    completed_at: float | None = None
 
 
 class DownloadManager:
@@ -169,61 +168,61 @@ class DownloadManager:
 
     def _extract_title(self, url: str) -> str:
         """Extract video title. Returns '__error__:message' on failure."""
-        t0 = time.perf_counter()
-        try:
-            # Attempt 1: browser cookies (includes PO token — best for YouTube)
-            if self.config.download.cookies_from_browser:
-                try:
-                    opts: dict[str, Any] = {
-                        "quiet": True,
-                        "cookiesfrombrowser": (
-                            self.config.download.cookies_from_browser,
-                            None,
-                            None,
-                            None,
-                        ),
-                    }
-                    opts["remote_components"] = ["ejs:github"]
-                    if _get_js_runtime():
-                        opts["js_runtimes"] = _get_js_runtime()
-                    with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
-                        info = ydl.extract_info(url, download=False)
-                        return info.get("title", "") or ""
-                except Exception:
-                    pass
-
-            # Attempt 2: default yt-dlp with optional cookie file (works for public videos)
+        # Attempt 1: browser cookies (includes PO token — best for YouTube)
+        if self.config.download.cookies_from_browser:
             try:
-                opts2: dict[str, Any] = {"quiet": True}
-                opts2["remote_components"] = ["ejs:github"]
+                opts: dict[str, Any] = {
+                    "quiet": True,
+                    "cookiesfrombrowser": (
+                        self.config.download.cookies_from_browser,
+                        None,
+                        None,
+                        None,
+                    ),
+                }
+                opts["remote_components"] = ["ejs:github"]
                 if _get_js_runtime():
-                    opts2["js_runtimes"] = _get_js_runtime()
-                if self.config.download.cookies_file:
-                    opts2["cookiefile"] = self.config.download.cookies_file
-                with _get_yt_dlp().YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
+                    opts["js_runtimes"] = _get_js_runtime()
+                with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
                     info = ydl.extract_info(url, download=False)
                     return info.get("title", "") or ""
-            except Exception as e:
-                return f"__error__:Failed to fetch info: {e}"
-        finally:
-            print(f"[timing] _extract_title: {time.perf_counter() - t0:.3f}s")
+            except Exception:
+                pass
 
-    def __init__(self, config, progress_callback: Optional[Callable] = None):
+        # Attempt 2: default yt-dlp with optional cookie file (works for public videos)
+        try:
+            opts2: dict[str, Any] = {"quiet": True}
+            opts2["remote_components"] = ["ejs:github"]
+            if _get_js_runtime():
+                opts2["js_runtimes"] = _get_js_runtime()
+            if self.config.download.cookies_file:
+                opts2["cookiefile"] = self.config.download.cookies_file
+            with _get_yt_dlp().YoutubeDL(opts2) as ydl:  # type: ignore[arg-type]
+                info = ydl.extract_info(url, download=False)
+                return info.get("title", "") or ""
+        except Exception as e:
+            return f"__error__:Failed to fetch info: {e}"
+
+    def __init__(
+        self,
+        config: Config,
+        progress_callback: Callable[[str, Any], None] | None = None,
+    ):
         """Initialize the download manager."""
         self.config = config
         self.progress_callback = progress_callback
 
         # Download queues
         self.pending_queue: Queue[DownloadItem] = Queue()
-        self.active_downloads: Dict[str, DownloadItem] = {}
-        self.completed_downloads: List[DownloadItem] = []
-        self.failed_downloads: List[DownloadItem] = []
+        self.active_downloads: dict[str, DownloadItem] = {}
+        self.completed_downloads: list[DownloadItem] = []
+        self.failed_downloads: list[DownloadItem] = []
 
         # Threading
         self.executor = ThreadPoolExecutor(
             max_workers=self.config.download.max_parallel_downloads
         )
-        self.download_tasks: Dict[str, Any] = {}
+        self.download_tasks: dict[str, Any] = {}
 
         # Control flags
         self.is_running = False
@@ -232,7 +231,7 @@ class DownloadManager:
         self._force_shutdown = False
 
         # Background thread for queue management
-        self.queue_thread: Optional[threading.Thread] = None
+        self.queue_thread: threading.Thread | None = None
 
     def add_download(self, url: str) -> str:
         """Add a new download to the queue after validating the URL."""
@@ -256,7 +255,7 @@ class DownloadManager:
 
         return download_item.id
 
-    def add_multiple_downloads(self, urls: List[str]) -> List[str]:
+    def add_multiple_downloads(self, urls: list[str]) -> list[str]:
         """Add multiple downloads to the queue after validating URLs."""
         download_ids = []
         for url in urls:
@@ -265,7 +264,7 @@ class DownloadManager:
                 download_ids.append(download_id)
         return download_ids
 
-    def start_downloads(self):
+    def start_downloads(self) -> None:
         """Start the download manager."""
         if self.is_running:
             return
@@ -278,19 +277,19 @@ class DownloadManager:
         self.queue_thread = threading.Thread(target=self._queue_manager, daemon=True)
         self.queue_thread.start()
 
-    def pause_downloads(self):
+    def pause_downloads(self) -> None:
         """Pause all downloads."""
         self.is_paused = True
         if self.progress_callback:
             self.progress_callback("downloads_paused", None)
 
-    def resume_downloads(self):
+    def resume_downloads(self) -> None:
         """Resume paused downloads."""
         self.is_paused = False
         if self.progress_callback:
             self.progress_callback("downloads_resumed", None)
 
-    def stop_downloads(self):
+    def stop_downloads(self) -> None:
         """Stop all downloads and cleanup."""
         self.is_running = False
         self._stop_event.set()
@@ -317,7 +316,7 @@ class DownloadManager:
         if self.progress_callback:
             self.progress_callback("downloads_stopped", None)
 
-    def cancel_download(self, download_id: str):
+    def cancel_download(self, download_id: str) -> None:
         """Cancel a specific download."""
         if download_id in self.active_downloads:
             download_item = self.active_downloads[download_id]
@@ -338,7 +337,7 @@ class DownloadManager:
             if self.progress_callback:
                 self.progress_callback("download_cancelled", download_item)
 
-    def retry_download(self, download_id: str):
+    def retry_download(self, download_id: str) -> None:
         """Retry a failed download."""
         # Find in failed downloads
         download_item = None
@@ -348,8 +347,6 @@ class DownloadManager:
                 break
 
         if download_item:
-            # Log retry attempt
-            print(f"Retrying download: {download_item.title}")
             if self.progress_callback:
                 self.progress_callback(
                     "log_message",
@@ -368,10 +365,8 @@ class DownloadManager:
             if self.progress_callback:
                 self.progress_callback("download_retried", download_item)
 
-    def remove_download(self, download_id: str, from_queue: str = "failed"):
+    def remove_download(self, download_id: str, from_queue: str = "failed") -> None:
         """Remove a download from the specified queue."""
-        print(f"Removing download {download_id} from {from_queue} queue")
-
         if from_queue == "failed":
             self.failed_downloads = [
                 item for item in self.failed_downloads if item.id != download_id
@@ -382,18 +377,17 @@ class DownloadManager:
             ]
 
         if self.progress_callback:
-            print(f"Sending download_removed callback for {download_id}")
             self.progress_callback(
                 "download_removed", {"id": download_id, "queue": from_queue}
             )
 
-    def move_download_up(self, _: str):
+    def move_download_up(self, _: str) -> None:
         pass  # Python's Queue doesn't support reordering
 
-    def move_download_down(self, _: str):
+    def move_download_down(self, _: str) -> None:
         pass  # Python's Queue doesn't support reordering
 
-    def get_queue_status(self) -> Dict[str, Any]:
+    def get_queue_status(self) -> dict[str, Any]:
         """Get current status of all queues."""
         return {
             "pending_count": self.pending_queue.qsize(),
@@ -407,7 +401,7 @@ class DownloadManager:
             "completed_downloads": self.completed_downloads,
         }
 
-    def _queue_manager(self):
+    def _queue_manager(self) -> None:
         """Background thread that manages the download queue."""
         while (
             self.is_running
@@ -450,7 +444,7 @@ class DownloadManager:
                     break  # pragma: no cover
                 time.sleep(1)  # pragma: no cover
 
-    def _process_completed_tasks(self):
+    def _process_completed_tasks(self) -> None:
         """Move finished download futures into completed or failed lists."""
         completed_tasks = [
             download_id
@@ -481,7 +475,6 @@ class DownloadManager:
                             -MAX_HISTORY:
                         ]
 
-                    print(f"Download completed: {download_item.title}")
                     if self.progress_callback:
                         self.progress_callback("download_completed", download_item)
                         res = f" [{download_item.resolution}]" if download_item.resolution else ""
@@ -509,10 +502,6 @@ class DownloadManager:
                         if len(self.failed_downloads) > MAX_HISTORY:
                             self.failed_downloads = self.failed_downloads[-MAX_HISTORY:]
 
-                        print(
-                            f"Download failed after {download_item.retry_count} attempts: "
-                            f"{download_item.title} - {download_item.error_message}"
-                        )
                         if self.progress_callback:
                             self.progress_callback("download_failed", download_item)
                             self.progress_callback(
@@ -523,13 +512,11 @@ class DownloadManager:
                                 },
                             )
 
-    def _start_download(self, download_item: DownloadItem):
+    def _start_download(self, download_item: DownloadItem) -> None:
         """Start downloading a single item."""
         download_item.status = DownloadStatus.DOWNLOADING
         download_item.started_at = time.time()
         self.active_downloads[download_item.id] = download_item
-
-        print(f"Starting download: {download_item.title}")
 
         # Submit download task to executor
         future = self.executor.submit(self._download_worker, download_item)
@@ -541,11 +528,11 @@ class DownloadManager:
                 "log_message", {"message": f"Starting download: {download_item.title}"}
             )
 
-    def _make_ydl_logger(self, download_item: "DownloadItem | None" = None):
+    def _make_ydl_logger(self, download_item: DownloadItem | None = None) -> Any:
         """Create a yt-dlp compatible logger object."""
         last_logged_percent = [-1]  # list used as mutable container for closure
 
-        def logger(_, msg):
+        def logger(_: Any, msg: str | None) -> None:
             """Capture yt-dlp log output (yt-dlp passes self as first arg)."""
             if msg:
                 import re
@@ -596,19 +583,16 @@ class DownloadManager:
                             and current_percent != last_logged_percent[0]
                         ):
                             last_logged_percent[0] = current_percent
-                            print(clean_msg)
                             if self.progress_callback:
                                 self.progress_callback(
                                     "log_message", {"message": clean_msg}
                                 )
                     except (ValueError, IndexError):
-                        print(clean_msg)
                         if self.progress_callback:
                             self.progress_callback(
                                 "log_message", {"message": clean_msg}
                             )
                 else:
-                    print(clean_msg)
                     if self.progress_callback:
                         self.progress_callback("log_message", {"message": clean_msg})
 
@@ -619,10 +603,10 @@ class DownloadManager:
         )()
         return log_obj
 
-    def _make_progress_hook(self, download_item: DownloadItem):
+    def _make_progress_hook(self, download_item: DownloadItem) -> Callable[[dict[str, Any]], None]:
         """Create a yt-dlp progress hook for the given download item."""
 
-        def progress_hook(d):
+        def progress_hook(d: dict[str, Any]) -> None:
             if d["status"] == "downloading":
                 fragment_index = d.get("fragment_index")
                 fragment_count = d.get("fragment_count")
@@ -687,8 +671,8 @@ class DownloadManager:
         return progress_hook
 
     def _build_base_opts(
-        self, download_item: DownloadItem, progress_hook, log_obj
-    ) -> dict:
+        self, download_item: DownloadItem, progress_hook: Any, log_obj: Any
+    ) -> dict[str, Any]:
         """Assemble the base yt-dlp options dict shared across all download strategies."""
         base_opts: dict[str, Any] = {
             "outtmpl": str(
@@ -746,9 +730,8 @@ class DownloadManager:
         except (DownloadError, ExtractorError) as e:
             raise Exception(f"yt-dlp error: {e}")
 
-    def _download_worker(self, download_item: DownloadItem):
+    def _download_worker(self, download_item: DownloadItem) -> None:
         """Coordinator that tries each download strategy in priority order."""
-        t0 = time.perf_counter()
         log_obj = self._make_ydl_logger(download_item)
         progress_hook = self._make_progress_hook(download_item)
         base_opts = self._build_base_opts(download_item, progress_hook, log_obj)
@@ -767,13 +750,6 @@ class DownloadManager:
             }
             try:
                 self._run_ydl(download_item, opts_browser)
-                if self.progress_callback:
-                    self.progress_callback(
-                        "log_message",
-                        {
-                            "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
-                        },
-                    )
                 return
             except Exception as e:
                 msg = str(e).lower()
@@ -797,13 +773,6 @@ class DownloadManager:
         }
         try:
             self._run_ydl(download_item, opts_public)
-            if self.progress_callback:
-                self.progress_callback(
-                    "log_message",
-                    {
-                        "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
-                    },
-                )
             return
         except Exception as e:
             msg = str(e).lower()
@@ -824,15 +793,8 @@ class DownloadManager:
             )
         opts_cookiefile = {**base_opts, "cookiefile": self.config.download.cookies_file}
         self._run_ydl(download_item, opts_cookiefile)
-        if self.progress_callback:
-            self.progress_callback(
-                "log_message",
-                {
-                    "message": f"[timing] _download_worker: {time.perf_counter() - t0:.3f}s"
-                },
-            )
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup when the manager is destroyed."""
         if hasattr(self, "is_running") and self.is_running:
             self._force_shutdown = True
