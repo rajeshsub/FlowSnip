@@ -887,7 +887,6 @@ def test_progress_hook_percentage_invalid_falls_to_zero(download_manager, sample
                 "fragment_count": None,
                 "_percent_str": "N/A%",
                 "_speed_str": "",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -905,7 +904,6 @@ def test_progress_hook_mib_speed_conversion(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "2.0 MiB/s",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -923,7 +921,6 @@ def test_progress_hook_mib_speed_invalid(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "N/A MiB/s",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -941,7 +938,6 @@ def test_progress_hook_kib_speed_conversion(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "200.0 KiB/s",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -959,7 +955,6 @@ def test_progress_hook_kib_speed_invalid(download_manager, sample_item):
                 "fragment_count": None,
                 "_percent_str": "10%",
                 "_speed_str": "N/A KiB/s",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
@@ -1004,12 +999,33 @@ def test_progress_hook_no_callback(test_config, sample_item):
                 "fragment_index": 1,
                 "fragment_count": 5,
                 "_speed_str": "",
-
                 "downloaded_bytes": 0,
                 "total_bytes": 0,
             }
         )
         hook({"status": "finished", "filename": "/tmp/x.mp4"})
+    mgr.stop_downloads()
+
+
+def test_progress_hook_milestone_no_callback(test_config, sample_item):
+    """Milestone branch with no callback must not crash."""
+    mgr = DownloadManager(test_config, None)
+    factory = _make_ytdl()
+    with patch("yt_dlp.YoutubeDL", side_effect=factory):
+        mgr._download_worker(sample_item)
+    hooks = factory.captured["opts"].get("progress_hooks", [])
+    for hook in hooks:
+        # 50% progress hits the 25% milestone; callback is None
+        hook(
+            {
+                "status": "downloading",
+                "fragment_index": 2,
+                "fragment_count": 4,
+                "_speed_str": "",
+                "downloaded_bytes": 0,
+                "total_bytes": 0,
+            }
+        )
     mgr.stop_downloads()
 
 
@@ -1363,7 +1379,10 @@ def test_retry_download_iterates_past_non_matching_no_callback(test_config):
     other = DownloadItem(url="https://example.com/other", title="Other")
     item = DownloadItem(url="https://example.com/video", title="Target")
     item.status = DownloadStatus.FAILED
-    mgr.failed_downloads = [other, item]  # item is second — forces loop to iterate past other
+    mgr.failed_downloads = [
+        other,
+        item,
+    ]  # item is second — forces loop to iterate past other
     mgr.retry_download(item.id)
     assert item not in mgr.failed_downloads
     assert mgr.pending_queue.qsize() == 1
@@ -1484,7 +1503,9 @@ def test_worker_strategy_a_db_error_no_callback(test_config, sample_item):
         instance.__enter__ = lambda s: instance
         instance.__exit__ = MagicMock(return_value=False)
         if call_count[0] == 1:
-            instance.download = MagicMock(side_effect=Exception("could not copy database"))
+            instance.download = MagicMock(
+                side_effect=Exception("could not copy database")
+            )
         else:
             instance.download = MagicMock()
         return instance

@@ -22,13 +22,17 @@ def _mock_urlopen(tag_name: str):
 
 
 def test_fetch_latest_tag_success():
-    with patch("flowsnip.updater.urllib.request.urlopen", return_value=_mock_urlopen("v2.0.0")):
+    with patch(
+        "flowsnip.updater.urllib.request.urlopen", return_value=_mock_urlopen("v2.0.0")
+    ):
         result = updater._fetch_latest_tag(updater._FLOWSNIP_API)
     assert result == "v2.0.0"
 
 
 def test_fetch_latest_tag_network_error():
-    with patch("flowsnip.updater.urllib.request.urlopen", side_effect=OSError("timeout")):
+    with patch(
+        "flowsnip.updater.urllib.request.urlopen", side_effect=OSError("timeout")
+    ):
         result = updater._fetch_latest_tag(updater._FLOWSNIP_API)
     assert result is None
 
@@ -180,5 +184,7 @@ def test_update_ytdlp_failure():
 
 
 def test_update_ytdlp_exception():
-    with patch("flowsnip.updater.subprocess.run", side_effect=Exception("pip not found")):
+    with patch(
+        "flowsnip.updater.subprocess.run", side_effect=Exception("pip not found")
+    ):
         assert updater.update_ytdlp() is False

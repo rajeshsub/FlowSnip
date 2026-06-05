@@ -20,4 +20,10 @@ __author__ = "Rajesh Subramanian"
 from .config import Config, UpdateConfig
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
-__all__ = ["Config", "UpdateConfig", "DownloadManager", "DownloadItem", "DownloadStatus"]
+__all__ = [
+    "Config",
+    "UpdateConfig",
+    "DownloadManager",
+    "DownloadItem",
+    "DownloadStatus",
+]

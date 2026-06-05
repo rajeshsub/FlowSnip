@@ -46,6 +46,7 @@ def _fetch_latest_tag(api_url: str) -> str | None:
 
 def _is_newer(latest: str, current: str) -> bool:
     """Return True if latest tag is strictly newer than current version string."""
+
     def _parts(v: str) -> tuple[int, ...]:
         return tuple(int(x) for x in v.lstrip("v").split(".") if x.isdigit())
 

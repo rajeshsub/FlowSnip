@@ -16,7 +16,9 @@ from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame  # noqa: E402
 # Constants (avoid repeating magic strings and numbers throughout tests)
 # ---------------------------------------------------------------------------
 
-_QUALITY_BEST = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+_QUALITY_BEST = (
+    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+)
 _QUALITY_1080P = (
     "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
     "/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best"
@@ -204,7 +206,6 @@ def test_update_progress_failed_button_retry():
     pf.update_progress(item)
     call_kw = pf.cancel_button.configure.call_args[1]
     assert call_kw["text"] == "Retry"
-
 
 
 def test_update_progress_non_downloading_zero_progress_no_suffix():
@@ -1056,7 +1057,9 @@ def test_update_ui_callback_skipped_schedules_auto_remove():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
+    after_calls = [
+        c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS
+    ]
     assert len(after_calls) == 1
 
 
@@ -1070,7 +1073,9 @@ def test_update_ui_callback_completed_auto_remove_enabled():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
+    after_calls = [
+        c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS
+    ]
     assert len(after_calls) == 1
 
 
@@ -1084,7 +1089,9 @@ def test_update_ui_callback_completed_auto_remove_disabled():
         patch.object(g, "update_button_states"),
     ):
         g._update_ui_callback("download_completed", item)
-    after_calls = [c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS]
+    after_calls = [
+        c for c in g.root.after.call_args_list if c[0][0] == _AUTO_REMOVE_DELAY_MS
+    ]
     assert len(after_calls) == 0
 
 
@@ -1488,7 +1495,6 @@ def test_flowsnipgui_init_no_auto_start(temp_dir):
         MockDM.return_value = mock_dm
         FlowSnipGUI(config)
     mock_dm.start_downloads.assert_not_called()
-
 
 
 def test_update_ui_callback_unhandled_event():

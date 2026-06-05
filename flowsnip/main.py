@@ -32,7 +32,9 @@ def _apply_ytdlp_update(app: FlowSnipGUI, new_ytdlp: str) -> None:
     )
 
 
-def _run_update_checks(app: FlowSnipGUI, config: Config, config_path: Path | str) -> None:
+def _run_update_checks(
+    app: FlowSnipGUI, config: Config, config_path: Path | str
+) -> None:
     """Background thread: check for FlowSnip and yt-dlp updates."""
     cfg = config.updates
 
@@ -58,16 +60,24 @@ def _run_update_checks(app: FlowSnipGUI, config: Config, config_path: Path | str
         current_ytdlp = getattr(yt_dlp, "__version__", "0")
         new_ytdlp = updater.check_ytdlp_update(current_ytdlp)
         if new_ytdlp:
+            _ytdlp_ver: str = new_ytdlp  # narrow str | None → str for mypy
+
+            def _on_update_click(v: str = _ytdlp_ver) -> None:
+                app.show_update_banner(
+                    f"Updating yt-dlp to {v}…", "Please wait", lambda: None
+                )
+                threading.Thread(
+                    target=_apply_ytdlp_update,
+                    args=(app, v),
+                    daemon=True,
+                ).start()
+
             app.root.after(
                 0,
                 lambda v=new_ytdlp: app.show_update_banner(
                     f"yt-dlp {v} is available.",
                     "Update now",
-                    lambda: threading.Thread(
-                        target=_apply_ytdlp_update,
-                        args=(app, v),
-                        daemon=True,
-                    ).start(),
+                    lambda: _on_update_click(v),
                 ),
             )
 
@@ -92,11 +102,14 @@ def main() -> int:
         app = FlowSnipGUI(config)
 
         if config.updates.check_flowsnip or config.updates.check_ytdlp:
-            threading.Thread(
-                target=_run_update_checks,
-                args=(app, config, config_path),
-                daemon=True,
-            ).start()
+            app.root.after(
+                0,
+                lambda: threading.Thread(
+                    target=_run_update_checks,
+                    args=(app, config, config_path),
+                    daemon=True,
+                ).start(),
+            )
 
         app.run()
         return 0
