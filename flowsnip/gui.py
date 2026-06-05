@@ -61,7 +61,9 @@ class ProgressFrame(ctk.CTkFrame):
         )
 
         self.speed_label = ctk.CTkLabel(self, text="Speed: --", anchor="w")
-        self.speed_label.grid(row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=2)
+        self.speed_label.grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=2
+        )
 
         # Action buttons
         self.cancel_button = ctk.CTkButton(
@@ -99,7 +101,11 @@ class ProgressFrame(ctk.CTkFrame):
         self.speed_label.configure(text=f"Speed: {download_item.speed or '--'}")
 
         # Update button based on status
-        if download_item.status in [DownloadStatus.COMPLETED, DownloadStatus.SKIPPED, DownloadStatus.CANCELLED]:
+        if download_item.status in [
+            DownloadStatus.COMPLETED,
+            DownloadStatus.SKIPPED,
+            DownloadStatus.CANCELLED,
+        ]:
             self.cancel_button.configure(text="Remove", command=self.remove_download)
         elif download_item.status == DownloadStatus.FAILED:
             self.cancel_button.configure(text="Retry", command=self.retry_download)
@@ -271,7 +277,7 @@ class ConfigFrame(ctk.CTkFrame):
             row=row, column=0, sticky="w", padx=10, pady=5
         )
         self.quality_options = {
-            "Best Quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+            "Best Quality": "bestvideo+bestaudio/best",
             "8K (4320p)": "bestvideo[height<=4320][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=4320]+bestaudio/best[ext=mp4]/best",
             "4K (2160p)": "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[ext=mp4]/best",
             "1440p": "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best[ext=mp4]/best",
@@ -351,9 +357,7 @@ class ConfigFrame(ctk.CTkFrame):
         ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         row += 1
 
-        self.check_ytdlp_var = ctk.BooleanVar(
-            value=self.config_obj.updates.check_ytdlp
-        )
+        self.check_ytdlp_var = ctk.BooleanVar(value=self.config_obj.updates.check_ytdlp)
         ctk.CTkCheckBox(
             self,
             text="Check for yt-dlp updates",
@@ -627,7 +631,9 @@ class FlowSnipGUI:
         self._update_banner_label = ctk.CTkLabel(
             self._update_banner, text="", text_color="white", anchor="w"
         )
-        self._update_banner_label.pack(side="left", padx=12, pady=6, fill="x", expand=True)
+        self._update_banner_label.pack(
+            side="left", padx=12, pady=6, fill="x", expand=True
+        )
         self._update_banner_action = ctk.CTkButton(
             self._update_banner,
             text="",
@@ -915,9 +921,7 @@ class FlowSnipGUI:
                 self.download_manager.add_multiple_downloads(urls)
                 self.root.after(
                     0,
-                    lambda: self.start_button.configure(
-                        state="normal", text="Start"
-                    ),
+                    lambda: self.start_button.configure(state="normal", text="Start"),
                 )
 
             threading.Thread(target=add_urls_async, daemon=True).start()

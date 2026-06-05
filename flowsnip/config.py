@@ -22,9 +22,7 @@ class DownloadConfig(BaseModel):
 
     max_parallel_downloads: int = Field(default=3, ge=1, le=10)
     download_directory: Path = Field(default=Path.home() / "Downloads" / "FlowSnip")
-    video_quality: str = Field(
-        default="bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
-    )
+    video_quality: str = Field(default="bestvideo+bestaudio/best")
     audio_only: bool = Field(default=False)
     audio_quality: str = Field(default="best")
     retry_attempts: int = Field(default=2, ge=1, le=5)

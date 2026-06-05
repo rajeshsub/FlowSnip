@@ -81,6 +81,7 @@ def test_main_gui_path_updates_disabled():
         mock_parser_factory.return_value = mock_parser
 
         from flowsnip.config import Config
+
         cfg = Config()
         cfg.updates.check_flowsnip = False
         cfg.updates.check_ytdlp = False

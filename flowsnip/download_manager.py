@@ -477,10 +477,16 @@ class DownloadManager:
 
                     if self.progress_callback:
                         self.progress_callback("download_completed", download_item)
-                        res = f" [{download_item.resolution}]" if download_item.resolution else ""
+                        res = (
+                            f" [{download_item.resolution}]"
+                            if download_item.resolution
+                            else ""
+                        )
                         self.progress_callback(
                             "log_message",
-                            {"message": f"Download completed: {download_item.title}{res}"},
+                            {
+                                "message": f"Download completed: {download_item.title}{res}"
+                            },
                         )
 
                 except Exception as e:
@@ -539,6 +545,9 @@ class DownloadManager:
 
                 ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
                 clean_msg = ansi_escape.sub("", msg).strip()
+
+                # Strip ETA from yt-dlp progress lines
+                clean_msg = re.sub(r"\s+ETA\s+[\d:]+", "", clean_msg)
 
                 # Convert speed units in log messages from MiB/s to Mbps
                 if "MiB/s" in clean_msg:
@@ -603,8 +612,11 @@ class DownloadManager:
         )()
         return log_obj
 
-    def _make_progress_hook(self, download_item: DownloadItem) -> Callable[[dict[str, Any]], None]:
+    def _make_progress_hook(
+        self, download_item: DownloadItem
+    ) -> Callable[[dict[str, Any]], None]:
         """Create a yt-dlp progress hook for the given download item."""
+        last_milestone = [-1]  # mutable container for closure
 
         def progress_hook(d: dict[str, Any]) -> None:
             if d["status"] == "downloading":
@@ -651,9 +663,25 @@ class DownloadManager:
                     download_item.speed = speed_str
 
                 download_item.downloaded_bytes = d.get("downloaded_bytes", 0)
-                download_item.total_bytes = (
-                    d.get("total_bytes", 0) or d.get("total_bytes_estimate", 0)
+                download_item.total_bytes = d.get("total_bytes", 0) or d.get(
+                    "total_bytes_estimate", 0
                 )
+
+                # Log progress at 25% milestones to the activity log
+                pct = int(download_item.progress)
+                milestone = (pct // 25) * 25
+                if milestone > 0 and milestone != last_milestone[0]:
+                    last_milestone[0] = milestone
+                    speed_info = (
+                        f" @ {download_item.speed}" if download_item.speed else ""
+                    )
+                    if self.progress_callback:
+                        self.progress_callback(
+                            "log_message",
+                            {
+                                "message": f"[{milestone}%] {download_item.title}{speed_info}"
+                            },
+                        )
 
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)
