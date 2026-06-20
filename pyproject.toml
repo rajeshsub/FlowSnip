@@ -5,7 +5,7 @@ description = "FlowSnip - Download media from YouTube, Vimeo, TikTok, Facebook, 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "yt-dlp>=2026.3",
+    "yt-dlp>=2026.6.9",
     "customtkinter>=5.2.2",
     "pydantic>=2.12.3",
     "pydantic-settings>=2.11.0",
