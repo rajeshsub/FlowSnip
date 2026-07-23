@@ -140,6 +140,26 @@ def test_main_no_gui():
     mock_gui.assert_not_called()
 
 
+def test_main_no_gui_does_not_require_gui_imports():
+    """The --no-gui path should exit before any GUI class import is attempted."""
+    mock_args = _default_args(no_gui=True)
+
+    with (
+        patch("flowsnip.main.create_arg_parser") as mock_factory,
+        patch("flowsnip.main.get_default_config_path", return_value=Path("cfg.json")),
+        patch("flowsnip.main.Config.load_from_file", return_value=MagicMock()),
+        patch("flowsnip.main._get_gui_class") as mock_get_gui,
+    ):
+        mock_parser = MagicMock()
+        mock_parser.parse_args.return_value = mock_args
+        mock_factory.return_value = mock_parser
+
+        result = main()
+
+    assert result == 1
+    mock_get_gui.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # main() — exception paths
 # ---------------------------------------------------------------------------

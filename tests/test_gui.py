@@ -942,6 +942,25 @@ def test_update_button_states_not_running():
     g.start_button.configure.assert_called_with(state="normal")
 
 
+def test_update_button_states_running_with_pending_url_keeps_start_enabled():
+    """A progress tick while downloads are running must not clobber a pending URL."""
+    g = _make_gui()
+    g.download_manager.is_running = True
+    g.download_manager.is_paused = False
+    g.url_textbox.get.return_value = "https://example.com"
+    g.update_button_states()
+    g.start_button.configure.assert_called_with(state="normal", text="Start")
+
+
+def test_update_button_states_running_no_pending_url_disables_start():
+    g = _make_gui()
+    g.download_manager.is_running = True
+    g.download_manager.is_paused = False
+    g.url_textbox.get.return_value = ""
+    g.update_button_states()
+    g.start_button.configure.assert_called_with(state="disabled", text="Start")
+
+
 # ---------------------------------------------------------------------------
 # FlowSnipGUI.progress_callback / _update_ui_callback
 # ---------------------------------------------------------------------------
