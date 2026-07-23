@@ -704,7 +704,7 @@ class DownloadManager:
         """Assemble the base yt-dlp options dict shared across all download strategies."""
         base_opts: dict[str, Any] = {
             "outtmpl": str(
-                self.config.download.download_directory / "%(title)s.%(ext)s"
+                self.config.download.download_directory / "%(title)s [%(id)s].%(ext)s"
             ),
             "progress_hooks": [progress_hook],
             "no_warnings": False,

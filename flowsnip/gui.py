@@ -864,9 +864,11 @@ class FlowSnipGUI:
     def _check_start_button_state(self):
         """Enable start button if there's text in the URL box, even if downloads are in progress."""
         urls_text = self.url_textbox.get("1.0", "end").strip()
-        has_urls = urls_text and urls_text != "Enter one video URL per line"
+        has_urls = bool(urls_text) and urls_text != "Enter one video URL per line"
         if has_urls:
             self.start_button.configure(state="normal", text="Start")
+        elif self.download_manager.is_running:
+            self.start_button.configure(state="disabled", text="Start")
 
     def log_message(self, message: str):
         """Add a message to the log window."""
@@ -969,7 +971,7 @@ class FlowSnipGUI:
     def update_button_states(self):
         """Update button states based on download manager status."""
         if self.download_manager.is_running:
-            self.start_button.configure(state="disabled")
+            self._check_start_button_state()
             self.pause_button.configure(state="normal")
             self.stop_button.configure(state="normal")
 

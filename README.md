@@ -4,7 +4,7 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ## ⚠️ Legal Disclaimer
 
-**FlowSnip is a GUI wrapper around yt-dlp. In other words, it's only just an user interface that calls out to yt-dlp! By using this tool, you acknowledge that you shall ONLY use it for accessing content that you have a legal right to access.** Users are solely responsible for ensuring their use complies with all applicable laws and the terms of service of content platforms. 
+**FlowSnip is a GUI wrapper around yt-dlp. In other words, it's only just an user interface that calls out to yt-dlp! By using this tool, you acknowledge that you shall ONLY use it for accessing content that you have a legal right to access.** Users are solely responsible for ensuring their use complies with all applicable laws and the terms of service of content platforms.
 
 **Users assume all legal risk** associated with downloading, storing, or using any content from any platform using this tool. See [DISCLAIMER.md](DISCLAIMER.md) for full details.
 
@@ -73,6 +73,9 @@ Open **System Settings → Privacy & Security**, scroll down, and click **Open A
 ### Prerequisites
 - Python 3.11 or higher
 - Git
+- **Tk runtime for the GUI** — Required to launch the desktop interface. Python package dependencies install fine with `uv`, but Linux still needs the system Tk package:
+  - Fedora/RHEL: `sudo dnf install python3-tkinter`
+  - Debian/Ubuntu: `sudo apt install python3-tk`
 - **Node.js** *(optional)* — Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. YouTube throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
 
 ### Quick Start (Recommended)

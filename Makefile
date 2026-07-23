@@ -18,6 +18,31 @@ bootstrap:
 	@echo "📦 Installing project dependencies..."
 	@uv sync
 	@echo "✓ Dependencies installed"
+	@echo "🖥️  Ensuring GUI runtime is available..."
+	@uv run python -c "import tkinter" >/dev/null 2>&1 || ( \
+		if command -v dnf >/dev/null 2>&1; then \
+			if command -v sudo >/dev/null 2>&1; then \
+				echo "📦 Installing Fedora/RHEL Tk runtime with sudo dnf..."; \
+				sudo dnf install -y python3-tkinter; \
+			else \
+				echo "⚠️  GUI runtime missing. Sudo is required to install python3-tkinter automatically on Fedora/RHEL."; \
+				exit 1; \
+			fi; \
+		elif command -v apt-get >/dev/null 2>&1; then \
+			if command -v sudo >/dev/null 2>&1; then \
+				echo "📦 Installing Debian/Ubuntu Tk runtime with sudo apt-get..."; \
+				sudo apt-get update && sudo apt-get install -y python3-tk; \
+			else \
+				echo "⚠️  GUI runtime missing. Sudo is required to install python3-tk automatically on Debian/Ubuntu."; \
+				exit 1; \
+			fi; \
+		else \
+			echo "⚠️  GUI runtime missing. Install the system Tk package manually for your distro."; \
+			exit 1; \
+		fi \
+	)
+	@uv run python -c "import tkinter" >/dev/null 2>&1 || (echo "❌ GUI runtime is still unavailable after bootstrap. Please install the system Tk package manually." && exit 1)
+	@echo "✓ GUI runtime available"
 	@echo "🔗 Installing pre-commit hooks..."
 	@uv run pre-commit install
 	@echo "✓ Pre-commit hooks installed"

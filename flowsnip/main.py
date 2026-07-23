@@ -12,13 +12,39 @@ import threading
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from flowsnip import __version__, updater
 from flowsnip.config import Config, create_arg_parser, get_default_config_path
-from flowsnip.gui import FlowSnipGUI
+
+if TYPE_CHECKING:
+    from flowsnip.gui import FlowSnipGUI
+else:
+    FlowSnipGUI: Any = None
 
 
-def _apply_ytdlp_update(app: FlowSnipGUI, new_ytdlp: str) -> None:
+def _get_gui_class() -> Any:
+    """Return the GUI class without importing tkinter until the GUI path is used."""
+    if FlowSnipGUI is not None:
+        return FlowSnipGUI
+
+    try:
+        from flowsnip.gui import FlowSnipGUI as gui_class
+    except ModuleNotFoundError as exc:
+        if exc.name in {"tkinter", "customtkinter"}:
+            print(
+                "FlowSnip GUI requires tkinter/customtkinter. "
+                "Install the system Tk package, for example on Fedora: "
+                "sudo dnf install python3-tkinter"
+            )
+            raise RuntimeError("GUI dependencies are not installed") from exc
+        raise
+
+    globals()["FlowSnipGUI"] = gui_class
+    return gui_class
+
+
+def _apply_ytdlp_update(app: Any, new_ytdlp: str) -> None:
     """Run yt-dlp in-place upgrade and post result banner back to the GUI thread."""
     success = updater.update_ytdlp()
     msg = (
@@ -32,9 +58,7 @@ def _apply_ytdlp_update(app: FlowSnipGUI, new_ytdlp: str) -> None:
     )
 
 
-def _run_update_checks(
-    app: FlowSnipGUI, config: Config, config_path: Path | str
-) -> None:
+def _run_update_checks(app: Any, config: Config, config_path: Path | str) -> None:
     """Background thread: check for FlowSnip and yt-dlp updates."""
     cfg = config.updates
 
@@ -99,7 +123,8 @@ def main() -> int:
             print("Command-line mode is not implemented yet.")
             return 1
 
-        app = FlowSnipGUI(config)
+        gui_class = _get_gui_class()
+        app = gui_class(config)
 
         if config.updates.check_flowsnip or config.updates.check_ytdlp:
             app.root.after(
