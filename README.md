@@ -1,5 +1,7 @@
 # FlowSnip
 
+[![CI](https://github.com/rajeshsub/FlowSnip/actions/workflows/ci.yml/badge.svg)](https://github.com/rajeshsub/FlowSnip/actions/workflows/ci.yml)
+
 FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ## ⚠️ Legal Disclaimer
@@ -119,6 +121,15 @@ uv run pytest --cov=flowsnip
 uv run ruff check --fix flowsnip tests
 uv run ruff format flowsnip tests
 ```
+
+### Pre-commit hooks
+
+`make bootstrap` (or `uv run pre-commit install`) wires up git hooks automatically:
+
+- **On `git commit`**: ruff (lint + format check), mypy, and the fast test suite (`pytest -m "not slow"`, no coverage gate).
+- **On `git push`**: the same lint/type checks plus the *full* test suite, including the slower real-threading queue-manager tests (`@pytest.mark.slow`), with the 100% coverage gate enforced — matching what CI runs.
+
+Run the full hook chain manually with `uv run pre-commit run --all-files` (commit stage) or `uv run pre-commit run --all-files --hook-stage pre-push` (push stage).
 
 ### Legacy: Using pip
 

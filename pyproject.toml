@@ -39,6 +39,9 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --cov=flowsnip --cov-report=term-missing --cov-fail-under=100"
+markers = [
+    "slow: real-threading/timing integration tests; excluded from the pre-commit hook, run at pre-push and in CI",
+]
 
 [tool.coverage.run]
 source = ["flowsnip"]

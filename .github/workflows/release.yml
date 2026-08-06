@@ -13,32 +13,7 @@ jobs:
   # Gate: full test suite must pass before any build starts
   # ---------------------------------------------------------------------------
   test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Lint (ruff)
-        run: uv run ruff check flowsnip/ tests/ && uv run ruff format --check flowsnip/ tests/
-
-      - name: Type check (mypy)
-        run: uv run mypy flowsnip/
-
-      - name: Audit dependencies (pip-audit)
-        run: uv run pip-audit || true
-
-      - name: Run tests
-        run: uv run pytest
+    uses: ./.github/workflows/test-suite.yml
 
   # ---------------------------------------------------------------------------
   # Extract version from pyproject.toml (used by all build jobs)
