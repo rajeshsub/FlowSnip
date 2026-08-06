@@ -57,7 +57,7 @@ class YtdlConfig(BaseModel):
     extract_flat: bool = Field(default=False)
     write_info_json: bool = Field(default=False)
     write_description: bool = Field(default=False)
-    embed_subs: bool = Field(default=False)
+    embed_subs: bool = Field(default=True)
     add_metadata: bool = Field(default=True)
     custom_args: list[str] = Field(default_factory=list)
 

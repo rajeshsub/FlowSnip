@@ -318,6 +318,15 @@ class ConfigFrame(ctk.CTkFrame):
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.audio_quality_row = row
         self.toggle_audio_quality_visibility()
+        row += 1
+
+        self.embed_subs_var = ctk.BooleanVar(value=self.config_obj.ytdl.embed_subs)
+        ctk.CTkCheckBox(
+            self,
+            text="Download subtitles when available",
+            variable=self.embed_subs_var,
+            command=self.update_embed_subs,
+        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=10, pady=5)
         return row + 1
 
     def _setup_appearance_section(self, row: int) -> int:
@@ -467,6 +476,10 @@ class ConfigFrame(ctk.CTkFrame):
         """Update audio quality setting."""
         self.config_obj.download.audio_quality = value
 
+    def update_embed_subs(self):
+        """Update subtitle download setting."""
+        self.config_obj.ytdl.embed_subs = self.embed_subs_var.get()
+
     def update_theme(self, value):
         """Update UI theme."""
         self.config_obj.ui.theme = value
@@ -546,6 +559,7 @@ class ConfigFrame(ctk.CTkFrame):
         self.audio_only_var.set(self.config_obj.download.audio_only)
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.toggle_audio_quality_visibility()
+        self.embed_subs_var.set(self.config_obj.ytdl.embed_subs)
         self.auto_start_var.set(self.config_obj.ui.auto_start_downloads)
         self.auto_remove_completed_var.set(self.config_obj.ui.auto_remove_completed)
         self.browser_var.set(self.config_obj.download.cookies_from_browser or "Not set")
