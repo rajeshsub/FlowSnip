@@ -713,6 +713,14 @@ def test_worker_ytdl_flags(download_manager, sample_item):
     download_manager.config.ytdl.embed_subs = False
 
 
+def test_worker_ytdl_flags_embed_subs_disabled(download_manager, sample_item):
+    download_manager.config.ytdl.embed_subs = False
+    factory = _make_ytdl()
+    opts = _run_worker(download_manager, sample_item, factory)
+    assert "writesubtitles" not in opts
+    assert "writeautomaticsub" not in opts
+
+
 # ---------------------------------------------------------------------------
 # _download_worker — logger inner function branches
 # ---------------------------------------------------------------------------
@@ -1034,6 +1042,7 @@ def test_progress_hook_milestone_no_callback(test_config, sample_item):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_queue_manager_completes_download(test_config, mock_callback):
     """Item queued after start_downloads ends up in completed_downloads."""
     test_config.download.retry_attempts = 1
@@ -1057,6 +1066,7 @@ def test_queue_manager_completes_download(test_config, mock_callback):
     assert len(mgr.completed_downloads) + len(mgr.failed_downloads) >= 1
 
 
+@pytest.mark.slow
 def test_queue_manager_retries_then_fails(test_config, mock_callback):
     """Item that always raises eventually lands in failed_downloads."""
     test_config.download.retry_attempts = 1
@@ -1081,6 +1091,7 @@ def test_queue_manager_retries_then_fails(test_config, mock_callback):
     assert mgr.failed_downloads[0].status == DownloadStatus.FAILED
 
 
+@pytest.mark.slow
 def test_queue_manager_paused_does_not_consume(download_manager):
     started = threading.Event()
     original_start = download_manager._start_download

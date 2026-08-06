@@ -1,10 +1,12 @@
 """Tests for flowsnip/main.py — targets 100% line coverage."""
 
 import argparse
+import builtins
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from flowsnip.main import _apply_ytdlp_update, _run_update_checks, main
+import flowsnip.main as main_module
+from flowsnip.main import _apply_ytdlp_update, _get_gui_class, _run_update_checks, main
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -158,6 +160,61 @@ def test_main_no_gui_does_not_require_gui_imports():
 
     assert result == 1
     mock_get_gui.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _get_gui_class
+# ---------------------------------------------------------------------------
+
+
+def test_get_gui_class_imports_and_caches():
+    with patch.object(main_module, "FlowSnipGUI", None):
+        result = _get_gui_class()
+
+        import flowsnip.gui as gui_module
+
+        assert result is gui_module.FlowSnipGUI
+        assert main_module.FlowSnipGUI is gui_module.FlowSnipGUI
+
+
+def test_get_gui_class_missing_tkinter_raises_runtime_error(capsys):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "flowsnip.gui":
+            raise ModuleNotFoundError("No module named 'tkinter'", name="tkinter")
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch.object(main_module, "FlowSnipGUI", None),
+        patch("builtins.__import__", side_effect=fake_import),
+    ):
+        try:
+            _get_gui_class()
+            raise AssertionError("expected RuntimeError")
+        except RuntimeError as exc:
+            assert "GUI dependencies are not installed" in str(exc)
+
+    assert "tkinter/customtkinter" in capsys.readouterr().out
+
+
+def test_get_gui_class_missing_unrelated_module_reraises():
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "flowsnip.gui":
+            raise ModuleNotFoundError("No module named 'foo'", name="foo")
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch.object(main_module, "FlowSnipGUI", None),
+        patch("builtins.__import__", side_effect=fake_import),
+    ):
+        try:
+            _get_gui_class()
+            raise AssertionError("expected ModuleNotFoundError")
+        except ModuleNotFoundError as exc:
+            assert exc.name == "foo"
 
 
 # ---------------------------------------------------------------------------

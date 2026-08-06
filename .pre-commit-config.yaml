@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -7,18 +9,48 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: debug-statements
+      - id: check-added-large-files
+      - id: check-merge-conflict
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.0
+  # Local hooks call `uv run <tool>` so the exact tool versions come from
+  # uv.lock — the same lockfile CI installs from (uv sync) — rather than a
+  # second, driftable set of pinned revs.
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        additional_dependencies: [pydantic, pydantic-settings]
-        args: [--config-file=pyproject.toml, flowsnip/]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check flowsnip/ tests/
+        language: system
+        types: [python]
         pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run ruff format --check flowsnip/ tests/
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy
+        entry: uv run mypy flowsnip/
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest-fast
+        name: pytest (fast subset, pre-commit)
+        description: Full suite minus @pytest.mark.slow real-threading/timing tests.
+        entry: uv run pytest -m "not slow" --no-cov
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: pytest-full
+        name: pytest (full suite incl. slow tests, pre-push)
+        entry: uv run pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
