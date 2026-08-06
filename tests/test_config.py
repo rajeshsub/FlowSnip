@@ -62,6 +62,7 @@ def test_ytdl_config_defaults():
     cfg = YtdlConfig()
     assert cfg.extract_flat is False
     assert cfg.write_info_json is False
+    assert cfg.embed_subs is True
     assert cfg.add_metadata is True
     assert cfg.custom_args == []
 

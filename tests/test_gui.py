@@ -79,6 +79,7 @@ def _make_config_frame(config=None):
     cf.parallel_value_label = MagicMock()
     cf.auto_start_var = _CTK_STUB.BooleanVar(value=True)
     cf.auto_remove_completed_var = _CTK_STUB.BooleanVar(value=False)
+    cf.embed_subs_var = _CTK_STUB.BooleanVar(value=True)
     cf.quality_options = {
         "Best Quality": _QUALITY_BEST,
         "1080p": _QUALITY_1080P,
@@ -466,6 +467,20 @@ def test_update_audio_quality():
     cf = _make_config_frame()
     cf.update_audio_quality("320")
     assert cf.config_obj.download.audio_quality == "320"
+
+
+def test_update_embed_subs_true():
+    cf = _make_config_frame()
+    cf.embed_subs_var.set(True)
+    cf.update_embed_subs()
+    assert cf.config_obj.ytdl.embed_subs is True
+
+
+def test_update_embed_subs_false():
+    cf = _make_config_frame()
+    cf.embed_subs_var.set(False)
+    cf.update_embed_subs()
+    assert cf.config_obj.ytdl.embed_subs is False
 
 
 def test_update_theme():
@@ -1363,6 +1378,13 @@ def test_update_ui_from_config_auto_remove_completed():
     cf.config_obj.ui.auto_remove_completed = True
     cf.update_ui_from_config()
     assert cf.auto_remove_completed_var.get() is True
+
+
+def test_update_ui_from_config_embed_subs():
+    cf = _make_config_frame()
+    cf.config_obj.ytdl.embed_subs = False
+    cf.update_ui_from_config()
+    assert cf.embed_subs_var.get() is False
 
 
 def test_update_check_flowsnip():
