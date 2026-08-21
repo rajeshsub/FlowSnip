@@ -50,7 +50,7 @@ def _apply_ytdlp_update(app: Any, new_ytdlp: str) -> None:
     msg = (
         f"yt-dlp updated to {new_ytdlp}."
         if success
-        else "yt-dlp update failed — check your connection."
+        else "yt-dlp update failed - check your connection."
     )
     app.root.after(
         0,

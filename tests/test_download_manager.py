@@ -1,4 +1,4 @@
-"""Tests for flowsnip/download_manager.py — targets 100% line coverage."""
+"""Tests for flowsnip/download_manager.py - targets 100% line coverage."""
 
 import os
 import threading
@@ -504,7 +504,7 @@ def test_get_queue_status(download_manager):
 
 
 # ---------------------------------------------------------------------------
-# _download_worker — strategy paths
+# _download_worker - strategy paths
 # ---------------------------------------------------------------------------
 
 
@@ -677,13 +677,13 @@ def test_worker_strategy_c_with_cookie_file(
         download_manager._download_worker(sample_item)
 
     mock_callback.assert_any_call(
-        "log_message", {"message": "Auth required — retrying with cookie file..."}
+        "log_message", {"message": "Auth required - retrying with cookie file..."}
     )
     download_manager.config.download.cookies_file = None
 
 
 # ---------------------------------------------------------------------------
-# _download_worker — audio-only and ytdl option flags
+# _download_worker - audio-only and ytdl option flags
 # ---------------------------------------------------------------------------
 
 
@@ -722,7 +722,7 @@ def test_worker_ytdl_flags_embed_subs_disabled(download_manager, sample_item):
 
 
 # ---------------------------------------------------------------------------
-# _download_worker — logger inner function branches
+# _download_worker - logger inner function branches
 # ---------------------------------------------------------------------------
 
 
@@ -736,7 +736,7 @@ def _get_logger(download_manager, sample_item):
 
 def test_logger_none_msg(download_manager, sample_item):
     logger = _get_logger(download_manager, sample_item)
-    logger.debug(None)  # if msg: is False — should not crash
+    logger.debug(None)  # if msg: is False - should not crash
 
 
 def test_logger_empty_msg(download_manager, sample_item):
@@ -750,7 +750,7 @@ def test_logger_mib_conversion_with_number(download_manager, sample_item):
 
 
 def test_logger_mib_conversion_no_number(download_manager, sample_item):
-    # "MiB/s" present but no numeric prefix — speed_match is None
+    # "MiB/s" present but no numeric prefix - speed_match is None
     logger = _get_logger(download_manager, sample_item)
     logger.debug("Speed in MiB/s units")
 
@@ -779,7 +779,7 @@ def test_logger_download_progress_non_5pct(
     logger = _get_logger(download_manager, sample_item)
     mock_callback.reset_mock()
     logger.debug("[download]   3.0% of 100MB")
-    # 3% is not divisible by 5 — should NOT log a progress message
+    # 3% is not divisible by 5 - should NOT log a progress message
     progress_calls = [
         c
         for c in mock_callback.call_args_list
@@ -805,7 +805,7 @@ def test_logger_download_unparseable_percent(
 ):
     logger = _get_logger(download_manager, sample_item)
     mock_callback.reset_mock()
-    # int(float("??")) raises ValueError — hits the except branch
+    # int(float("??")) raises ValueError - hits the except branch
     logger.debug("[download] ??% of 100MB")
     mock_callback.assert_any_call("log_message", {"message": "[download] ??% of 100MB"})
 
@@ -816,7 +816,7 @@ def test_logger_no_callback(test_config, sample_item):
     with patch("yt_dlp.YoutubeDL", side_effect=factory):
         mgr._download_worker(sample_item)
     logger = factory.captured["opts"]["logger"]
-    logger.debug("[download]   5.0% of 100MB")  # progress_callback is None — no crash
+    logger.debug("[download]   5.0% of 100MB")  # progress_callback is None - no crash
     logger.debug("Some other message")
     mgr.stop_downloads()
 
@@ -840,7 +840,7 @@ def test_logger_already_downloaded_sets_flag(download_manager, sample_item):
 
 
 # ---------------------------------------------------------------------------
-# _download_worker — progress_hook inner function branches
+# _download_worker - progress_hook inner function branches
 # ---------------------------------------------------------------------------
 
 
@@ -1247,7 +1247,7 @@ def test_height_to_label(height, expected):
 
 
 # ---------------------------------------------------------------------------
-# progress hook — resolution capture
+# progress hook - resolution capture
 # ---------------------------------------------------------------------------
 
 
@@ -1323,7 +1323,7 @@ def test_process_completed_trims_failed_history(download_manager):
 
 
 # ---------------------------------------------------------------------------
-# Branch coverage — no-callback paths and edge cases
+# Branch coverage - no-callback paths and edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -1393,7 +1393,7 @@ def test_retry_download_iterates_past_non_matching_no_callback(test_config):
     mgr.failed_downloads = [
         other,
         item,
-    ]  # item is second — forces loop to iterate past other
+    ]  # item is second - forces loop to iterate past other
     mgr.retry_download(item.id)
     assert item not in mgr.failed_downloads
     assert mgr.pending_queue.qsize() == 1
@@ -1484,14 +1484,14 @@ def test_ydl_logger_download_percent_parse_error_no_callback(test_config, sample
 
 def test_queue_manager_exits_immediately_when_not_running(test_config, mock_callback):
     mgr = DownloadManager(test_config, mock_callback)
-    # is_running is False by default — while condition fails immediately
+    # is_running is False by default - while condition fails immediately
     mgr._queue_manager()
     mgr.stop_downloads()
 
 
 def test_progress_hook_unknown_status(download_manager, sample_item):
     hook = download_manager._make_progress_hook(sample_item)
-    hook({"status": "error"})  # neither "downloading" nor "finished" — no-op
+    hook({"status": "error"})  # neither "downloading" nor "finished" - no-op
 
 
 def test_build_base_opts_add_metadata_disabled(download_manager, sample_item):

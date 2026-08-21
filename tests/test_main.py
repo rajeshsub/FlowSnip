@@ -1,4 +1,4 @@
-"""Tests for flowsnip/main.py — targets 100% line coverage."""
+"""Tests for flowsnip/main.py - targets 100% line coverage."""
 
 import argparse
 import builtins
@@ -37,7 +37,7 @@ def _make_app():
 
 
 # ---------------------------------------------------------------------------
-# main() — normal GUI path
+# main() - normal GUI path
 # ---------------------------------------------------------------------------
 
 
@@ -119,7 +119,7 @@ def test_main_uses_args_config():
 
 
 # ---------------------------------------------------------------------------
-# main() — no_gui path
+# main() - no_gui path
 # ---------------------------------------------------------------------------
 
 
@@ -218,7 +218,7 @@ def test_get_gui_class_missing_unrelated_module_reraises():
 
 
 # ---------------------------------------------------------------------------
-# main() — exception paths
+# main() - exception paths
 # ---------------------------------------------------------------------------
 
 

@@ -19,11 +19,11 @@ DMG_PATH="dist/${DMG_NAME}"
 STAGING="dist/dmg_staging"
 
 if [[ ! -d "${APP_PATH}" ]]; then
-  echo "ERROR: ${APP_PATH} not found — run pyinstaller first." >&2
+  echo "ERROR: ${APP_PATH} not found - run pyinstaller first." >&2
   exit 1
 fi
 
-# TODO: code signing — uncomment and fill in when an Apple Developer cert is available
+# TODO: code signing - uncomment and fill in when an Apple Developer cert is available
 # codesign --deep --force --verify --verbose \
 #   --sign "Developer ID Application: <Name> (<Team ID>)" \
 #   "${APP_PATH}"
@@ -44,7 +44,7 @@ hdiutil create \
 
 rm -rf "${STAGING}"
 
-# TODO: notarization — uncomment when Apple Developer credentials are available
+# TODO: notarization - uncomment when Apple Developer credentials are available
 # xcrun notarytool submit "${DMG_PATH}" \
 #   --apple-id "<apple-id>" \
 #   --password "<app-specific-password>" \

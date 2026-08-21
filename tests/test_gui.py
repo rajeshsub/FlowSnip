@@ -1,4 +1,4 @@
-"""Tests for flowsnip/gui.py — targets 100% line coverage."""
+"""Tests for flowsnip/gui.py - targets 100% line coverage."""
 
 # conftest.py has already injected customtkinter/tkinter stubs into sys.modules.
 import sys
@@ -348,7 +348,7 @@ def test_flowsnipgui_init(temp_dir):
 
 
 # ---------------------------------------------------------------------------
-# ConfigFrame.setup_ui (via instantiation — tests quality match logic)
+# ConfigFrame.setup_ui (via instantiation - tests quality match logic)
 # ---------------------------------------------------------------------------
 
 
@@ -1355,7 +1355,7 @@ def test_cleanup_no_manager():
 
 
 # ---------------------------------------------------------------------------
-# ConfigFrame — update settings callbacks
+# ConfigFrame - update settings callbacks
 # ---------------------------------------------------------------------------
 
 
@@ -1408,7 +1408,7 @@ def test_update_check_frequency():
 
 
 # ---------------------------------------------------------------------------
-# FlowSnipGUI — update banner
+# FlowSnipGUI - update banner
 # ---------------------------------------------------------------------------
 
 
@@ -1423,7 +1423,7 @@ def test_setup_update_banner():
 def test_show_update_banner():
     g = _make_gui()
     # _make_gui already provides _update_banner/_update_banner_label/_update_banner_action
-    # as MagicMocks — do NOT call _setup_update_banner() here or it overwrites them.
+    # as MagicMocks - do NOT call _setup_update_banner() here or it overwrites them.
     cb = MagicMock()
     g.show_update_banner("New version available", "Download", cb)
     g._update_banner.grid.assert_called()
@@ -1510,13 +1510,13 @@ def test_set_window_icon_exception_swallowed():
 
 
 # ---------------------------------------------------------------------------
-# Branch coverage — edge cases
+# Branch coverage - edge cases
 # ---------------------------------------------------------------------------
 
 
 def test_show_section_unknown():
     g = _make_gui()
-    g.show_section("Unknown")  # no match — all sections hidden, no crash
+    g.show_section("Unknown")  # no match - all sections hidden, no crash
 
 
 def test_flowsnipgui_init_no_auto_start(temp_dir):

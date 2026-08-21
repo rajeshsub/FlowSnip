@@ -641,7 +641,7 @@ class FlowSnipGUI:
     def _setup_update_banner(self):
         """Create the dismissible update notification banner (hidden until needed)."""
         self._update_banner = ctk.CTkFrame(self.root, fg_color="#2B5EA8")
-        # not gridded yet — shown only when an update is available
+        # not gridded yet - shown only when an update is available
         self._update_banner_label = ctk.CTkLabel(
             self._update_banner, text="", text_color="white", anchor="w"
         )
@@ -675,7 +675,7 @@ class FlowSnipGUI:
         action_label: str,
         action_callback,
     ):
-        """Show the update banner (thread-safe — call via root.after)."""
+        """Show the update banner (thread-safe - call via root.after)."""
         self._update_banner_label.configure(text=message)
         self._update_banner_action.configure(text=action_label, command=action_callback)
         self._update_banner.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
@@ -699,7 +699,7 @@ class FlowSnipGUI:
             sys.exit(0)
 
     def setup_ui(self):
-        """Setup the user interface — URL bar first, rest deferred."""
+        """Setup the user interface - URL bar first, rest deferred."""
         self._setup_url_bar()
         self.root.after(0, self._finish_ui_setup)
 

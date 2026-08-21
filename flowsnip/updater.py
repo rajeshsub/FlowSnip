@@ -1,7 +1,7 @@
 """
 Update checker for FlowSnip and yt-dlp.
 
-Pure logic module — no GUI imports. All network calls are fire-and-forget
+Pure logic module - no GUI imports. All network calls are fire-and-forget
 with a hard timeout; failures are silently swallowed so they never block
 or crash the app.
 """
