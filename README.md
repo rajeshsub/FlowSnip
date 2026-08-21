@@ -223,6 +223,16 @@ FlowSnip/
 └── README.md                   # This file
 ```
 
+## Code Signing Policy
+
+Windows release builds are code signed using a free code signing certificate provided by [SignPath.io](https://about.signpath.io/), courtesy of the [SignPath Foundation](https://signpath.org/) open source program.
+
+- **Authors**: Rajesh Subramanian ([@rajeshsub](https://github.com/rajeshsub))
+- **Reviewers**: Rajesh Subramanian ([@rajeshsub](https://github.com/rajeshsub))
+- **Approvers**: Rajesh Subramanian ([@rajeshsub](https://github.com/rajeshsub))
+
+Privacy policy: FlowSnip does not transfer any personal data to SignPath as part of the signing process.
+
 ## Contributing
 
 Contributions welcome! :-)
