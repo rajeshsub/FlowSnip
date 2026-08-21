@@ -71,9 +71,25 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller installer/FlowSnip.spec
 
-      # TODO: code signing — add Windows EV cert signing here before packaging
-      # signtool sign /tr http://timestamp.sectigo.com /td sha256 /fd sha256
-      #   /a dist\FlowSnip\FlowSnip.exe
+      # --- Code signing (1/2): sign the app exe before it gets bundled into the installer ---
+      - name: Upload unsigned app exe
+        id: upload-unsigned-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app-unsigned
+          if-no-files-found: error
+          path: dist/FlowSnip/FlowSnip.exe
+
+      - name: Sign app exe (SignPath)
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
+          organization-id: "${{ vars.SIGNPATH_ORGANIZATION_ID }}"
+          project-slug: "FlowSnip"
+          signing-policy-slug: "release-signing"
+          github-artifact-id: "${{ steps.upload-unsigned-app.outputs.artifact-id }}"
+          wait-for-completion: true
+          output-artifact-directory: "dist/FlowSnip"
 
       - name: Install NSIS
         run: choco install nsis -y
@@ -82,6 +98,26 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=${{ env.VERSION }} installer\windows\FlowSnip.nsi
+
+      # --- Code signing (2/2): sign the NSIS installer wrapper itself ---
+      - name: Upload unsigned installer
+        id: upload-unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-unsigned
+          if-no-files-found: error
+          path: dist/FlowSnip-${{ env.VERSION }}-windows-setup.exe
+
+      - name: Sign installer (SignPath)
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
+          organization-id: "${{ vars.SIGNPATH_ORGANIZATION_ID }}"
+          project-slug: "FlowSnip"
+          signing-policy-slug: "release-signing"
+          github-artifact-id: "${{ steps.upload-unsigned-installer.outputs.artifact-id }}"
+          wait-for-completion: true
+          output-artifact-directory: "dist"
 
       - uses: actions/upload-artifact@v4
         with:
