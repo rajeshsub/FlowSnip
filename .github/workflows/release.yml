@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ---------------------------------------------------------------------------
   # Gate: full test suite must pass before any build starts
@@ -25,7 +29,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: get_version
         run: |
           VERSION=$(python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
@@ -41,9 +45,9 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
@@ -74,14 +78,14 @@ jobs:
       # --- Code signing (1/2): sign the app exe before it gets bundled into the installer ---
       - name: Upload unsigned app exe
         id: upload-unsigned-app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-app-unsigned
           if-no-files-found: error
           path: dist/FlowSnip/FlowSnip.exe
 
       - name: Sign app exe (SignPath)
-        uses: signpath/github-action-submit-signing-request@v2
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
         with:
           api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
           organization-id: "${{ vars.SIGNPATH_ORGANIZATION_ID }}"
@@ -102,14 +106,14 @@ jobs:
       # --- Code signing (2/2): sign the NSIS installer wrapper itself ---
       - name: Upload unsigned installer
         id: upload-unsigned-installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-installer-unsigned
           if-no-files-found: error
           path: dist/FlowSnip-${{ env.VERSION }}-windows-setup.exe
 
       - name: Sign installer (SignPath)
-        uses: signpath/github-action-submit-signing-request@v2
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
         with:
           api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
           organization-id: "${{ vars.SIGNPATH_ORGANIZATION_ID }}"
@@ -135,9 +139,9 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       ARCH: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
@@ -164,7 +168,7 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller installer/FlowSnip.spec
 
-      # TODO: code signing + notarization — add Apple Developer ID signing here
+      # TODO: code signing + notarization - add Apple Developer ID signing here
       # codesign --deep --force --sign "Developer ID Application: ..." dist/FlowSnip.app
 
       - name: Create DMG
@@ -185,9 +189,9 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
@@ -269,15 +273,19 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Generate SHA-256 checksums
+        working-directory: release-artifacts
+        run: sha256sum FlowSnip-* > SHA256SUMS.txt
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: FlowSnip v${{ env.VERSION }}
           generate_release_notes: true
@@ -285,3 +293,4 @@ jobs:
             release-artifacts/FlowSnip-${{ env.VERSION }}-windows-setup.exe
             release-artifacts/FlowSnip-${{ env.VERSION }}-macos-arm64.dmg
             release-artifacts/FlowSnip-${{ env.VERSION }}-linux.AppImage
+            release-artifacts/SHA256SUMS.txt

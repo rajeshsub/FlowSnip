@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# PyInstaller spec for FlowSnip — all platforms.
+# PyInstaller spec for FlowSnip - all platforms.
 # Run from the repo root:
 #   pyinstaller installer/FlowSnip.spec
 #

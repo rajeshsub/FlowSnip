@@ -1,6 +1,7 @@
 # FlowSnip
 
 [![CI](https://github.com/rajeshsub/FlowSnip/actions/workflows/ci.yml/badge.svg)](https://github.com/rajeshsub/FlowSnip/actions/workflows/ci.yml)
+[![Release](https://github.com/rajeshsub/FlowSnip/actions/workflows/release.yml/badge.svg)](https://github.com/rajeshsub/FlowSnip/actions/workflows/release.yml)
 
 FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
@@ -46,7 +47,7 @@ On startup, FlowSnip displays a legal disclaimer dialog that users must acknowle
 
 ## Installation
 
-Pre-built installers are attached to every [GitHub Release](https://github.com/rajeshsub/FlowSnip/releases). Download the one for your platform — no Python or other prerequisites needed.
+Pre-built installers are attached to every [GitHub Release](https://github.com/rajeshsub/FlowSnip/releases). Download the one for your platform - no Python or other prerequisites needed.
 
 | Platform | File |
 |---|---|
@@ -54,7 +55,18 @@ Pre-built installers are attached to every [GitHub Release](https://github.com/r
 | macOS (Apple Silicon + Intel via Rosetta 2) | `FlowSnip-x.y.z-macos-arm64.dmg` |
 | Linux | `FlowSnip-x.y.z-linux.AppImage` |
 
-### ⚠️ Unsigned builds — first-launch warnings
+### Verifying a release
+
+Every release also includes a `SHA256SUMS.txt` file covering all platform artifacts. To verify a download hasn't been corrupted or tampered with:
+
+```bash
+# from the directory containing both the downloaded installer and SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+A matching `OK` confirms the file is byte-for-byte what CI built and published. This does not by itself prove who built it - see the [Code Signing Policy](#code-signing-policy) section below for the code-signing angle.
+
+### ⚠️ Unsigned builds - first-launch warnings
 
 Installers are currently unsigned. Your OS will warn you on first launch.
 
@@ -75,10 +87,10 @@ Open **System Settings → Privacy & Security**, scroll down, and click **Open A
 ### Prerequisites
 - Python 3.11 or higher
 - Git
-- **Tk runtime for the GUI** — Required to launch the desktop interface. Python package dependencies install fine with `uv`, but Linux still needs the system Tk package:
+- **Tk runtime for the GUI** - Required to launch the desktop interface. Python package dependencies install fine with `uv`, but Linux still needs the system Tk package:
   - Fedora/RHEL: `sudo dnf install python3-tkinter`
   - Debian/Ubuntu: `sudo apt install python3-tk`
-- **Node.js** *(optional)* — Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. YouTube throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
+- **Node.js** *(optional)* - Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. YouTube throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
 
 ### Quick Start (Recommended)
 
@@ -127,7 +139,7 @@ uv run ruff format flowsnip tests
 `make bootstrap` (or `uv run pre-commit install`) wires up git hooks automatically:
 
 - **On `git commit`**: ruff (lint + format check), mypy, and the fast test suite (`pytest -m "not slow"`, no coverage gate).
-- **On `git push`**: the same lint/type checks plus the *full* test suite, including the slower real-threading queue-manager tests (`@pytest.mark.slow`), with the 100% coverage gate enforced — matching what CI runs.
+- **On `git push`**: the same lint/type checks plus the *full* test suite, including the slower real-threading queue-manager tests (`@pytest.mark.slow`), with the 100% coverage gate enforced - matching what CI runs.
 
 Run the full hook chain manually with `uv run pre-commit run --all-files` (commit stage) or `uv run pre-commit run --all-files --hook-stage pre-push` (push stage).
 

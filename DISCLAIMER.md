@@ -7,7 +7,7 @@ FlowSnip is a GUI wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 **By using FlowSnip, you acknowledge and agree that:**
 
 1. **Legal Right to access** - You are solely responsible for ensuring you have the legal right to access content from any source you use FlowSnip with
-2. **Terms of Service Compliance** - You agree to comply with the terms of service of all content platforms. Many platforms explicitly prohibit automated downloading — users must verify compliance
+2. **Terms of Service Compliance** - You agree to comply with the terms of service of all content platforms. Many platforms explicitly prohibit automated downloading; users must verify compliance
 3. **Copyright & Intellectual Property** - You are responsible for respecting copyright and intellectual property laws. Downloaded content may be protected and unauthorized distribution is illegal
 4. **No Warranty** - FlowSnip is provided "as-is" without any warranty
 

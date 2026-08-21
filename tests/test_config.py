@@ -1,4 +1,4 @@
-"""Tests for flowsnip/config.py — targets 100% line coverage."""
+"""Tests for flowsnip/config.py - targets 100% line coverage."""
 
 import argparse
 from pathlib import Path
@@ -155,7 +155,7 @@ def test_update_from_args_all_set(temp_dir):
 
 def test_update_from_args_none_values():
     cfg = Config()
-    # All falsy / None — nothing should change
+    # All falsy / None - nothing should change
     args = _args(
         download_dir=None,
         quality=None,
@@ -270,13 +270,13 @@ def test_create_arg_parser_all_flags(temp_dir):
 
 
 # ---------------------------------------------------------------------------
-# _convert_paths_to_strings — branch coverage
+# _convert_paths_to_strings - branch coverage
 # ---------------------------------------------------------------------------
 
 
 def test_config_convert_paths_non_container():
     cfg = Config()
-    cfg._convert_paths_to_strings(42)  # neither dict nor list — no-op
+    cfg._convert_paths_to_strings(42)  # neither dict nor list - no-op
 
 
 def test_config_convert_paths_list_with_scalar_item():
