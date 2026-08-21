@@ -1,4 +1,4 @@
-"""Tests for flowsnip/updater.py — targets 100% line coverage."""
+"""Tests for flowsnip/updater.py - targets 100% line coverage."""
 
 import json
 from datetime import datetime, timedelta, timezone
@@ -75,7 +75,7 @@ def test_is_newer_false_older():
 
 
 def test_is_newer_none_triggers_except():
-    # None.lstrip raises AttributeError — caught by the except clause
+    # None.lstrip raises AttributeError - caught by the except clause
     assert updater._is_newer(None, "1.0.0") is False
 
 
@@ -152,7 +152,7 @@ def test_should_check_weekly_elapsed():
 
 
 def test_should_check_unknown_frequency_returns_true():
-    # Frequency not in _FREQUENCY_DELTAS — treated as "check now"
+    # Frequency not in _FREQUENCY_DELTAS - treated as "check now"
     assert updater.should_check(datetime.now(tz=timezone.utc), "monthly") is True
 
 

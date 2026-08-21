@@ -1,11 +1,15 @@
-name: Test suite
+name: Dependency audit
 
 on:
-  workflow_call:
+  schedule:
+    # Every Monday 06:00 UTC - catches CVEs disclosed after a dependency was
+    # last pinned, since pinning alone freezes the version, not the risk.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
-  test:
-    name: Test
+  audit:
+    name: pip-audit (scheduled)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -20,14 +24,5 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Lint (ruff)
-        run: uv run ruff check flowsnip/ tests/ && uv run ruff format --check flowsnip/ tests/
-
-      - name: Type check (mypy)
-        run: uv run mypy flowsnip/
-
       - name: Audit dependencies (pip-audit)
         run: uv run pip-audit
-
-      - name: Run tests
-        run: uv run pytest

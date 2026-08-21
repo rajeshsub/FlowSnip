@@ -35,7 +35,7 @@ def _find_js_runtime() -> dict | None:
     if explicit and os.path.isfile(explicit):
         return {"node": {"path": explicit}}
 
-    # Prefer Node.js — check PATH first, then common Windows install locations.
+    # Prefer Node.js - check PATH first, then common Windows install locations.
     node = shutil.which("node") or shutil.which("nodejs")
     if node:
         return {"node": {"path": node}}
@@ -56,7 +56,7 @@ def _find_js_runtime() -> dict | None:
     return None
 
 
-# Lazy accessors — avoid import-time cost of loading yt_dlp and probing the filesystem.
+# Lazy accessors - avoid import-time cost of loading yt_dlp and probing the filesystem.
 _UNSET = object()
 _JS_RUNTIME = _UNSET  # populated on first download via _get_js_runtime()
 _yt_dlp_module = None  # populated on first download via _get_yt_dlp()
@@ -168,7 +168,7 @@ class DownloadManager:
 
     def _extract_title(self, url: str) -> str:
         """Extract video title. Returns '__error__:message' on failure."""
-        # Attempt 1: browser cookies (includes PO token — best for YouTube)
+        # Attempt 1: browser cookies (includes PO token - best for YouTube)
         if self.config.download.cookies_from_browser:
             try:
                 opts: dict[str, Any] = {
@@ -582,7 +582,7 @@ class DownloadManager:
                 if download_item and "has already been downloaded" in clean_msg:
                     download_item.already_exists = True
 
-                # Filter out excessive download progress lines — only log every 5%
+                # Filter out excessive download progress lines - only log every 5%
                 if clean_msg.startswith("[download]") and "%" in clean_msg:
                     try:
                         percent_str = clean_msg.split("%")[0].split()[-1]
@@ -794,7 +794,7 @@ class DownloadManager:
                 elif not any(kw in msg for kw in _AUTH_KEYWORDS):
                     raise
 
-        # Strategy B: default yt-dlp with Firefox user-agent — works for most public videos.
+        # Strategy B: default yt-dlp with Firefox user-agent - works for most public videos.
         opts_public = {
             **base_opts,
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
@@ -817,7 +817,7 @@ class DownloadManager:
         if self.progress_callback:
             self.progress_callback(
                 "log_message",
-                {"message": "Auth required — retrying with cookie file..."},
+                {"message": "Auth required - retrying with cookie file..."},
             )
         opts_cookiefile = {**base_opts, "cookiefile": self.config.download.cookies_file}
         self._run_ydl(download_item, opts_cookiefile)
