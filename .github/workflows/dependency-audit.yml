@@ -24,8 +24,5 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Upgrade pip (patch known CVEs in the bundled interpreter)
-        run: uv run python -m pip install --upgrade pip
-
       - name: Audit dependencies (pip-audit)
         run: uv run pip-audit
