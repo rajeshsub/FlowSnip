@@ -34,9 +34,19 @@ def fmt(
     tbr: float = 1000,
     fps: int = 30,
     protocol: str = "https",
+    language: str | None = None,
+    language_preference: int = -1,
+    quality: float | None = None,
+    source_preference: int = -1,
+    dynamic_range: str = "SDR",
 ) -> dict[str, Any]:
     """Build one format entry."""
     return {
+        "source_preference": source_preference,
+        "dynamic_range": dynamic_range if height else None,
+        "language": language,
+        "language_preference": language_preference,
+        "quality": quality,
         "format_id": format_id,
         "ext": ext,
         "height": height,
@@ -92,7 +102,146 @@ ADAPTIVE_4K = [
 ]
 
 
-def select(spec: str, formats: list[dict[str, Any]]) -> dict[str, Any]:
+# Original-language AAC, Opus and E-AC-3 surround, YouTube's "stable volume"
+# (DRC) copy of the AAC (a separate encode, so its bitrate differs slightly),
+# and a higher-bitrate dubbed track.
+AUDIO_TRACKS = [
+    fmt(
+        "140",
+        "m4a",
+        None,
+        "none",
+        "mp4a.40.2",
+        tbr=129.47,
+        language="en",
+        language_preference=10,
+        quality=2,
+    ),
+    fmt(
+        "140-drc",
+        "m4a",
+        None,
+        "none",
+        "mp4a.40.2",
+        tbr=129.52,
+        language="en",
+        language_preference=10,
+        quality=1.5,
+    ),
+    fmt(
+        "251",
+        "webm",
+        None,
+        "none",
+        "opus",
+        tbr=135,
+        language="en",
+        language_preference=10,
+        quality=2,
+    ),
+    fmt(
+        "140-fr",
+        "m4a",
+        None,
+        "none",
+        "mp4a.40.2",
+        tbr=160,
+        language="fr",
+        language_preference=-1,
+        quality=2,
+    ),
+]
+
+AUDIO_TRACKS.append(
+    fmt(
+        "328",
+        "m4a",
+        None,
+        "none",
+        "ec-3",
+        tbr=384,
+        language="en",
+        language_preference=10,
+        quality=2,
+    )
+)
+
+# kC179N-Fx_s signed in (October 2026): AV1 is the lowest-bitrate stream at
+# every height, yet yt-dlp's default codec order picks it.
+FOUR_K_SIGNED_IN = [
+    *AUDIO_TRACKS,
+    fmt("399", "mp4", 1080, "av01.0.08M.08", tbr=561, fps=25),
+    fmt("248", "webm", 1080, "vp9", tbr=1031, fps=25),
+    fmt("137", "mp4", 1080, "avc1.640028", tbr=1687, fps=25),
+    fmt("400", "mp4", 1440, "av01.0.12M.08", tbr=1452, fps=25),
+    fmt("271", "webm", 1440, "vp9", tbr=2991, fps=25),
+    fmt("401", "mp4", 2160, "av01.0.12M.08", tbr=2952, fps=25),
+    fmt("313", "webm", 2160, "vp9", tbr=8763, fps=25),
+]
+
+# Signed out adds visionos HLS streams: VP9 in MP4 at far higher bitrates.
+FOUR_K_SIGNED_OUT = [
+    *FOUR_K_SIGNED_IN,
+    fmt("614", "mp4", 1080, "vp09.00.40.08", tbr=2414, fps=25, protocol="m3u8_native"),
+    fmt("270", "mp4", 1080, "avc1.640028", tbr=4322, fps=25, protocol="m3u8_native"),
+    fmt("620", "mp4", 1440, "vp09.00.50.08", tbr=6803, fps=25, protocol="m3u8_native"),
+    fmt("625", "mp4", 2160, "vp09.00.50.08", tbr=23495, fps=25, protocol="m3u8_native"),
+]
+
+# UE-Ij-ymt5o tops out at 1080p50. The 25fps stream is not in the real list:
+# it checks that a higher frame rate beats a higher bitrate.
+HFR_1080 = [
+    *AUDIO_TRACKS,
+    fmt("399", "mp4", 1080, "av01.0.09M.08", tbr=1236, fps=50),
+    fmt("303", "webm", 1080, "vp9", tbr=1707, fps=50),
+    fmt("299", "mp4", 1080, "avc1.64002A", tbr=2667, fps=50),
+    fmt("312", "mp4", 1080, "avc1.64002A", tbr=3469, fps=50, protocol="m3u8_native"),
+    fmt("617", "mp4", 1080, "vp09.00.41.08", tbr=3757, fps=50, protocol="m3u8_native"),
+    fmt("137", "mp4", 1080, "avc1.640028", tbr=9999, fps=25),
+]
+
+# An 8K upload: AV1 in MP4 and VP9 in WebM at 4320p on top of the 4K ladder.
+EIGHT_K = [
+    *FOUR_K_SIGNED_IN,
+    fmt("571", "mp4", 4320, "av01.0.16M.08", tbr=21000, fps=25),
+    fmt("272", "webm", 4320, "vp9", tbr=26000, fps=25),
+]
+
+
+# A YouTube Premium session: 616 is the enhanced-bitrate 1080p, served over
+# HLS (source_preference +100 in yt-dlp, -1 for everything else).
+PREMIUM_1080 = [
+    *AUDIO_TRACKS,
+    fmt("399", "mp4", 1080, "av01.0.08M.08", tbr=1200),
+    fmt("248", "webm", 1080, "vp9", tbr=2000),
+    fmt("137", "mp4", 1080, "avc1.640028", tbr=2600),
+    fmt(
+        "616",
+        "mp4",
+        1080,
+        "vp09.00.40.08",
+        tbr=5000,
+        protocol="m3u8_native",
+        source_preference=99,
+    ),
+]
+
+# 4K with both SDR and HDR10 encodes; the SDR VP9 has the highest bitrate.
+HDR_4K = [
+    *AUDIO_TRACKS,
+    fmt("401", "mp4", 2160, "av01.0.12M.08", tbr=2952),
+    fmt("313", "webm", 2160, "vp9", tbr=8763),
+    fmt("701", "mp4", 2160, "av01.0.13M.10", tbr=6000, dynamic_range="HDR10"),
+    fmt("337", "webm", 2160, "vp9.2", tbr=7500, dynamic_range="HDR10"),
+]
+
+
+def select(
+    spec: str,
+    formats: list[dict[str, Any]],
+    format_sort: tuple[str, ...] | None = None,
+    merge_output_format: str | None = None,
+) -> dict[str, Any]:
     """Return the processed info dict yt-dlp produces for ``spec`` over ``formats``."""
     info = {
         "id": "C3iHAgwIYtI",
@@ -103,7 +252,12 @@ def select(spec: str, formats: list[dict[str, Any]]) -> dict[str, Any]:
         "formats": [dict(f) for f in formats],
         "_format_sort_fields": _YOUTUBE_SORT_FIELDS,
     }
-    with YoutubeDL({"format": spec, "simulate": True, "quiet": True}) as ydl:
+    params: dict[str, Any] = {"format": spec, "simulate": True, "quiet": True}
+    if format_sort:
+        params["format_sort"] = list(format_sort)
+    if merge_output_format:
+        params["merge_output_format"] = merge_output_format
+    with YoutubeDL(params) as ydl:
         return ydl.process_ie_result(info, download=False)
 
 

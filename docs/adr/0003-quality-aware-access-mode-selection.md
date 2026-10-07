@@ -36,13 +36,20 @@ text, which missed messages such as YouTube's "members-only" wording.
 
 Option a. For each download, FlowSnip extracts once per configured access
 mode (`extract_info(download=False)`), ranks each mode's selected formats by
-(display height, fps, total bitrate), and downloads the best-ranked result by
+(display height, fps, source preference, direct-over-HLS, total bitrate), and
+downloads the best-ranked result by
 reusing that mode's session and info dict (`process_ie_result(download=True)`),
 so the download costs no extra request. Equal ranks keep the configured order
 (browser cookies, signed out, cookie file). If the chosen download fails, the
 next-ranked mode is tried. A mode that fails to extract never blocks the
 others, so fallback no longer depends on error-message keywords; the keyword
 list survives only to word the final "requires YouTube login" hint.
+
+Source preference keeps YouTube Premium's enhanced-bitrate streams on top.
+Direct streams beat HLS before bitrate is compared because YouTube lists HLS
+bitrates as peaks: an HLS stream listed at 3.8 Mbps measured as the same
+1.7 Mbps encode as its DASH twin. The same ordering is used inside each mode
+by the preset `format_sort` (`VIDEO_FORMAT_SORT` in `flowsnip/config.py`).
 
 When modes disagree on resolution, the activity log says which mode offered
 what and which one was used. After a download, ffprobe reads the finished file,
