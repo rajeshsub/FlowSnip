@@ -360,6 +360,82 @@ def test_run_update_checks_ytdlp_no_new_version(temp_dir):
     app.root.after.assert_not_called()
 
 
+def test_run_update_checks_compares_against_installed_ytdlp_version(temp_dir):
+    from yt_dlp.version import __version__ as installed
+
+    from flowsnip.config import Config
+
+    app = _make_app()
+    config = Config()
+    config.updates.check_flowsnip = False
+    config.updates.check_ytdlp = True
+
+    with (
+        patch("flowsnip.main.updater.should_check", return_value=True),
+        patch("flowsnip.updater._fetch_latest_tag", return_value=installed),
+    ):
+        _run_update_checks(app, config, temp_dir / "cfg.json")
+
+    # Already on the latest release: no banner.
+    app.root.after.assert_not_called()
+
+
+def test_run_update_checks_frozen_build_points_to_flowsnip_release(
+    temp_dir, monkeypatch
+):
+    from flowsnip.config import Config
+
+    app = _make_app()
+    config = Config()
+    config.updates.check_flowsnip = False
+    config.updates.check_ytdlp = True
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+
+    with (
+        patch("flowsnip.main.updater.should_check", return_value=True),
+        patch("flowsnip.main.updater.check_ytdlp_update", return_value="2026.12.01"),
+        patch("flowsnip.main.updater.update_ytdlp") as mock_pip,
+        patch("flowsnip.main.webbrowser.open") as mock_open,
+    ):
+        _run_update_checks(app, config, temp_dir / "cfg.json")
+        app.root.after.call_args[0][1]()
+        message, action_label, action_cb = app.show_update_banner.call_args[0]
+        action_cb()
+
+    assert "2026.12.01" in message
+    assert "FlowSnip release" in message
+    assert action_label == "Releases"
+    mock_open.assert_called_once_with(
+        "https://github.com/rajeshsub/FlowSnip/releases/latest"
+    )
+    mock_pip.assert_not_called()
+
+
+def test_run_update_checks_frozen_build_lets_flowsnip_banner_stand(
+    temp_dir, monkeypatch
+):
+    from flowsnip.config import Config
+
+    app = _make_app()
+    config = Config()
+    config.updates.check_flowsnip = True
+    config.updates.check_ytdlp = True
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+
+    with (
+        patch("flowsnip.main.updater.should_check", return_value=True),
+        patch("flowsnip.main.updater.check_flowsnip_update", return_value="v9.9.9"),
+        patch("flowsnip.main.updater.check_ytdlp_update", return_value="2026.12.01"),
+    ):
+        _run_update_checks(app, config, temp_dir / "cfg.json")
+        for call in app.root.after.call_args_list:
+            call[0][1]()
+
+    # Only the FlowSnip banner: the new release is how yt-dlp gets updated.
+    [banner] = app.show_update_banner.call_args_list
+    assert "v9.9.9" in banner[0][0]
+
+
 # ---------------------------------------------------------------------------
 # _apply_ytdlp_update
 # ---------------------------------------------------------------------------
@@ -373,6 +449,8 @@ def test_apply_ytdlp_update_success():
     after_cb()
     msg = app.show_update_banner.call_args[0][0]
     assert "updated" in msg
+    # The running process keeps the old yt-dlp module until restarted.
+    assert "Restart FlowSnip" in msg
 
 
 def test_apply_ytdlp_update_failure():

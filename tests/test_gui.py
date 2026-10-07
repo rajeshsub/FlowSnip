@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 # Access the stubs that conftest.py injected so helpers can use StringVar/BooleanVar
 _CTK_STUB = sys.modules["customtkinter"]
 
-from flowsnip.config import Config  # noqa: E402
+from flowsnip.config import VIDEO_QUALITY_PRESETS, Config  # noqa: E402
 from flowsnip.download_manager import DownloadItem, DownloadStatus  # noqa: E402
 from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame  # noqa: E402
 
@@ -16,13 +16,7 @@ from flowsnip.gui import ConfigFrame, FlowSnipGUI, ProgressFrame  # noqa: E402
 # Constants (avoid repeating magic strings and numbers throughout tests)
 # ---------------------------------------------------------------------------
 
-_QUALITY_BEST = (
-    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
-)
-_QUALITY_1080P = (
-    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]"
-    "/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best"
-)
+_QUALITY_1080P = VIDEO_QUALITY_PRESETS["1080p"]
 _LOG_LINE_LIMIT = 1000
 _AUTO_REMOVE_DELAY_MS = 1500
 _THROTTLE_THRESHOLD_S = 0.1
@@ -80,10 +74,7 @@ def _make_config_frame(config=None):
     cf.auto_start_var = _CTK_STUB.BooleanVar(value=True)
     cf.auto_remove_completed_var = _CTK_STUB.BooleanVar(value=False)
     cf.embed_subs_var = _CTK_STUB.BooleanVar(value=True)
-    cf.quality_options = {
-        "Best Quality": _QUALITY_BEST,
-        "1080p": _QUALITY_1080P,
-    }
+    cf.quality_options = VIDEO_QUALITY_PRESETS
     cf.quality_var = _CTK_STUB.StringVar(value="Best Quality")
     cf.theme_var = _CTK_STUB.StringVar(value="dark")
     cf.theme_combobox = MagicMock()
@@ -359,6 +350,8 @@ def test_config_frame_setup_ui_quality_match(temp_dir):
     cf = ConfigFrame.__new__(ConfigFrame)
     cf.config_obj = config
     cf.setup_ui()
+    assert cf.quality_options is VIDEO_QUALITY_PRESETS
+    assert cf.quality_var.get() == "1080p"
 
 
 def test_config_frame_setup_ui_quality_no_match(temp_dir):
@@ -368,6 +361,9 @@ def test_config_frame_setup_ui_quality_no_match(temp_dir):
     cf = ConfigFrame.__new__(ConfigFrame)
     cf.config_obj = config
     cf.setup_ui()
+    # A string the GUI doesn't recognise must not be presented as a preset.
+    assert cf.quality_var.get() == "Custom"
+    assert config.download.video_quality == "unknown/format"
 
 
 def test_config_frame_audio_only_shows_quality(temp_dir):
@@ -440,7 +436,7 @@ def test_update_parallel_downloads():
 def test_update_video_quality_known():
     cf = _make_config_frame()
     cf.update_video_quality("1080p")
-    assert "1080" in cf.config_obj.download.video_quality
+    assert cf.config_obj.download.video_quality == _QUALITY_1080P
 
 
 def test_update_video_quality_unknown():
@@ -593,7 +589,7 @@ def test_update_ui_from_config_quality_no_match():
     cf = _make_config_frame()
     cf.config_obj.download.video_quality = "unknown_format"
     cf.update_ui_from_config()
-    assert cf.quality_var.get() == "Best Quality"
+    assert cf.quality_var.get() == "Custom"
 
 
 def test_update_ui_from_config_browser_none():

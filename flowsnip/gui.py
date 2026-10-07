@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from .config import Config
+from .config import VIDEO_QUALITY_PRESETS, Config, video_quality_display_name
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
 
@@ -276,23 +276,10 @@ class ConfigFrame(ctk.CTkFrame):
         ctk.CTkLabel(self, text="Video Quality:").grid(
             row=row, column=0, sticky="w", padx=10, pady=5
         )
-        self.quality_options = {
-            "Best Quality": "bestvideo+bestaudio/best",
-            "8K (4320p)": "bestvideo[height<=4320][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=4320]+bestaudio/best[ext=mp4]/best",
-            "4K (2160p)": "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[ext=mp4]/best",
-            "1440p": "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best[ext=mp4]/best",
-            "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best",
-            "720p": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[ext=mp4][height<=720]/best[height<=720]",
-            "480p": "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[ext=mp4][height<=480]/best[height<=480]",
-            "360p": "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[ext=mp4][height<=360]/best[height<=360]",
-            "240p": "bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=240]+bestaudio/best[ext=mp4][height<=240]/best[height<=240]",
-        }
-        current_format = self.config_obj.download.video_quality
-        current_display = "Best Quality"
-        for display_name, format_string in self.quality_options.items():
-            if format_string == current_format:
-                current_display = display_name
-                break
+        self.quality_options = VIDEO_QUALITY_PRESETS
+        current_display = video_quality_display_name(
+            self.config_obj.download.video_quality
+        )
         self.quality_var = ctk.StringVar(value=current_display)
         self.quality_combobox = ctk.CTkOptionMenu(
             self,
@@ -463,7 +450,7 @@ class ConfigFrame(ctk.CTkFrame):
     def update_video_quality(self, selected_display_name):
         """Update video quality setting."""
         format_string = self.quality_options.get(
-            selected_display_name, "bestvideo+bestaudio/best"
+            selected_display_name, VIDEO_QUALITY_PRESETS["Best Quality"]
         )
         self.config_obj.download.video_quality = format_string
 
@@ -549,13 +536,9 @@ class ConfigFrame(ctk.CTkFrame):
         self.parallel_value_label.configure(
             text=str(self.config_obj.download.max_parallel_downloads)
         )
-        current_format = self.config_obj.download.video_quality
-        current_display = "Best Quality"
-        for display_name, format_string in self.quality_options.items():
-            if format_string == current_format:
-                current_display = display_name
-                break
-        self.quality_var.set(current_display)
+        self.quality_var.set(
+            video_quality_display_name(self.config_obj.download.video_quality)
+        )
         self.audio_only_var.set(self.config_obj.download.audio_only)
         self.audio_quality_combobox.set(self.config_obj.download.audio_quality)
         self.toggle_audio_quality_visibility()
