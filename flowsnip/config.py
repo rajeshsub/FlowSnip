@@ -9,12 +9,79 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
+
+CUSTOM_VIDEO_QUALITY = "Custom"
+
+
+def _capped_preset(height: int, fallback_to_best: bool) -> str:
+    """Highest stream at or below ``height``, whatever its codec or container."""
+    spec = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+    return f"{spec}/best" if fallback_to_best else spec
+
+
+# Resolution decides first; yt-dlp's codec order (AV1 > VP9 > H.264) breaks ties.
+# Filtering on container (e.g. [ext=mp4]) ahead of resolution silently capped
+# VP9-only 4K and 1440p uploads at 1080p.
+VIDEO_QUALITY_PRESETS: Mapping[str, str] = MappingProxyType(
+    {
+        "Best Quality": "bestvideo+bestaudio/best",
+        "8K (4320p)": _capped_preset(4320, fallback_to_best=True),
+        "4K (2160p)": _capped_preset(2160, fallback_to_best=True),
+        "1440p": _capped_preset(1440, fallback_to_best=True),
+        "1080p": _capped_preset(1080, fallback_to_best=True),
+        "720p": _capped_preset(720, fallback_to_best=False),
+        "480p": _capped_preset(480, fallback_to_best=False),
+        "360p": _capped_preset(360, fallback_to_best=False),
+        "240p": _capped_preset(240, fallback_to_best=False),
+    }
+)
+
+
+def _legacy_mp4_first_preset(height: int, fallback_to_best: bool) -> str:
+    """Preset strings shipped up to v0.1.4, still present in saved configs."""
+    mp4_first = (
+        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
+        f"/bestvideo[height<={height}]+bestaudio"
+    )
+    if fallback_to_best:
+        return f"{mp4_first}/best[ext=mp4]/best"
+    return f"{mp4_first}/best[ext=mp4][height<={height}]/best[height<={height}]"
+
+
+_LEGACY_VIDEO_QUALITY: dict[str, str] = {
+    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best": (
+        VIDEO_QUALITY_PRESETS["Best Quality"]
+    ),
+    **{
+        _legacy_mp4_first_preset(height, fallback): VIDEO_QUALITY_PRESETS[name]
+        for name, height, fallback in (
+            ("8K (4320p)", 4320, True),
+            ("4K (2160p)", 2160, True),
+            ("1440p", 1440, True),
+            ("1080p", 1080, True),
+            ("720p", 720, False),
+            ("480p", 480, False),
+            ("360p", 360, False),
+            ("240p", 240, False),
+        )
+    },
+}
+
+
+def video_quality_display_name(format_string: str) -> str:
+    """Return the preset name for a format string, or "Custom" if none matches."""
+    for name, preset in VIDEO_QUALITY_PRESETS.items():
+        if preset == format_string:
+            return name
+    return CUSTOM_VIDEO_QUALITY
 
 
 class DownloadConfig(BaseModel):
@@ -22,12 +89,18 @@ class DownloadConfig(BaseModel):
 
     max_parallel_downloads: int = Field(default=3, ge=1, le=10)
     download_directory: Path = Field(default=Path.home() / "Downloads" / "FlowSnip")
-    video_quality: str = Field(default="bestvideo+bestaudio/best")
+    video_quality: str = Field(default=VIDEO_QUALITY_PRESETS["Best Quality"])
     audio_only: bool = Field(default=False)
     audio_quality: str = Field(default="best")
     retry_attempts: int = Field(default=2, ge=1, le=5)
     cookies_file: str | None = Field(default=None)
     cookies_from_browser: str | None = Field(default=None)
+
+    @field_validator("video_quality")
+    @classmethod
+    def migrate_legacy_video_quality(cls, v: str) -> str:
+        """Replace preset strings saved by older versions with their current form."""
+        return _LEGACY_VIDEO_QUALITY.get(v, v)
 
     @field_validator("download_directory")
     @classmethod

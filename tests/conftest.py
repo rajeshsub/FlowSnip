@@ -203,10 +203,28 @@ def _inject_gui_stubs():
 
 _inject_gui_stubs()
 
+# Captured before any fixture can redirect HOME, so tests can prove isolation.
+_REAL_HOME = Path.home()
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def real_home():
+    return _REAL_HOME
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    """Point HOME at a temp dir so no test can read or overwrite the real config."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return home
 
 
 @pytest.fixture
