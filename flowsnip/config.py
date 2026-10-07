@@ -27,9 +27,9 @@ def _capped_preset(height: int, fallback_to_best: bool) -> str:
     return f"{spec}/best" if fallback_to_best else spec
 
 
-# Resolution decides first; yt-dlp's codec order (AV1 > VP9 > H.264) breaks ties.
-# Filtering on container (e.g. [ext=mp4]) ahead of resolution silently capped
-# VP9-only 4K and 1440p uploads at 1080p.
+# Resolution decides first; VIDEO_FORMAT_SORT picks among streams of equal
+# resolution. Filtering on container (e.g. [ext=mp4]) ahead of resolution
+# silently capped VP9-only 4K and 1440p uploads at 1080p.
 VIDEO_QUALITY_PRESETS: Mapping[str, str] = MappingProxyType(
     {
         "Best Quality": "bestvideo+bestaudio/best",
@@ -74,6 +74,38 @@ _LEGACY_VIDEO_QUALITY: dict[str, str] = {
         )
     },
 }
+
+
+# How yt-dlp ranks streams for preset video downloads, most important first:
+#   lang        original-language audio, before any dub
+#   res, fps    highest resolution, then frame rate
+#   hdr:12      HDR over SDR when both exist (yt-dlp's own default)
+#   acodec:aac  stereo AAC over Opus and E-AC-3: native to MP4 and playable
+#               everywhere (browsers can't decode E-AC-3)
+#   source      YouTube Premium's enhanced-bitrate streams over regular ones
+#   proto       direct (https) streams over HLS, whose listed bitrates are
+#               peaks: an HLS VP9 stream listed at 3.8 Mbps was the same
+#               1.7 Mbps encode as its DASH twin
+#   quality     YouTube's quality class, which ranks DRC audio below normal
+#   br          then the highest bitrate, whatever the codec
+# yt-dlp's default ranks codec (AV1 > VP9 > H.264) above bitrate, which picks
+# YouTube's AV1 encode even when it is a fraction of the VP9 or H.264 bitrate
+# at the same resolution and visibly worse.
+VIDEO_FORMAT_SORT: tuple[str, ...] = (
+    "lang",
+    "res",
+    "fps",
+    "hdr:12",
+    "acodec:aac",
+    "source",
+    "proto",
+    "quality",
+    "br",
+)
+
+# Merged preset video downloads are saved as MP4; VP9 and AV1 are copied in
+# as-is. A single pre-merged stream keeps its own container.
+VIDEO_CONTAINER = "mp4"
 
 
 def video_quality_display_name(format_string: str) -> str:

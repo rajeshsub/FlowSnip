@@ -5,14 +5,21 @@ from pathlib import Path
 
 import pytest
 from ytdlp_formats import (
-    ADAPTIVE_4K,
+    EIGHT_K,
+    FOUR_K_SIGNED_IN,
+    FOUR_K_SIGNED_OUT,
+    HDR_4K,
+    HFR_1080,
     HLS_ONLY_1080,
+    PREMIUM_1080,
     VP9_ONLY_4K,
     select,
     selected_ids,
 )
 
 from flowsnip.config import (
+    VIDEO_CONTAINER,
+    VIDEO_FORMAT_SORT,
     VIDEO_QUALITY_PRESETS,
     Config,
     DownloadConfig,
@@ -100,20 +107,77 @@ def test_video_quality_display_name_for_preset_and_custom():
 def test_preset_picks_highest_stream_within_cap_when_top_tiers_are_vp9_only(
     preset, expected_height
 ):
-    info = select(VIDEO_QUALITY_PRESETS[preset], VP9_ONLY_4K)
+    info = select(VIDEO_QUALITY_PRESETS[preset], VP9_ONLY_4K, VIDEO_FORMAT_SORT)
     assert info["height"] == expected_height
     assert len(selected_ids(info)) == 2  # separate video + audio, merged
 
 
-def test_4k_preset_prefers_av1_over_vp9_at_same_height():
-    info = select(VIDEO_QUALITY_PRESETS["4K (2160p)"], ADAPTIVE_4K)
-    assert selected_ids(info) == ["401", "251"]
+def _pick(preset, formats):
+    return selected_ids(
+        select(VIDEO_QUALITY_PRESETS[preset], formats, VIDEO_FORMAT_SORT)
+    )
+
+
+def test_4k_picks_highest_bitrate_stream_not_lowest_bitrate_av1():
+    # yt-dlp's default codec order chose AV1 401 at 3 Mbps over VP9 313 at
+    # 8.8 Mbps, which is what made 4K downloads look poor. HLS 625 lists a
+    # higher (peak) bitrate but is the same encode, so DASH 313 wins.
+    assert _pick("Best Quality", FOUR_K_SIGNED_OUT) == ["313", "140"]
+    assert _pick("Best Quality", FOUR_K_SIGNED_IN) == ["313", "140"]
+    assert _pick("4K (2160p)", FOUR_K_SIGNED_OUT) == ["313", "140"]
+
+
+def test_1080p50_cap_picks_highest_bitrate_at_top_frame_rate():
+    # Not AV1 399 at 1.2 Mbps, not the 9.9 Mbps stream at 25fps, and not HLS
+    # 617, whose listed 3.8 Mbps is a peak: measured, it is the same 1.7 Mbps
+    # encode as VP9 303, below H.264 299's real 2.7 Mbps.
+    assert _pick("Best Quality", HFR_1080) == ["299", "140"]
+
+
+def test_hls_only_resolution_still_wins_over_lower_dash_resolution():
+    # Direct streams only break ties: HLS 625 is used when it's the only 4K.
+    hls_only_4k = [f for f in FOUR_K_SIGNED_OUT if f["format_id"] not in ("313", "401")]
+    assert _pick("Best Quality", hls_only_4k) == ["625", "140"]
+
+
+def test_8k_is_chosen_when_listed_and_4k_preset_caps_at_2160():
+    assert _pick("Best Quality", EIGHT_K) == ["272", "140"]
+    assert _pick("8K (4320p)", EIGHT_K) == ["272", "140"]
+    assert _pick("4K (2160p)", EIGHT_K) == ["313", "140"]
+
+
+def test_audio_is_original_language_stereo_aac_without_drc():
+    # Not Opus 251, not E-AC-3 328 (browsers can't decode it), not the
+    # higher-bitrate French dub, and not the DRC copy despite its higher bitrate.
+    for formats in (FOUR_K_SIGNED_OUT, HFR_1080, EIGHT_K):
+        assert _pick("Best Quality", formats)[-1] == "140"
+
+
+def test_premium_enhanced_bitrate_stream_beats_regular_dash():
+    assert _pick("Best Quality", PREMIUM_1080) == ["616", "140"]
+
+
+def test_hdr_is_preferred_when_available_as_yt_dlp_does():
+    assert _pick("Best Quality", HDR_4K) == ["337", "140"]
+
+
+@pytest.mark.parametrize("formats", [FOUR_K_SIGNED_IN, HDR_4K, PREMIUM_1080])
+def test_merged_video_downloads_are_saved_as_mp4(formats):
+    info = select(
+        VIDEO_QUALITY_PRESETS["Best Quality"],
+        formats,
+        VIDEO_FORMAT_SORT,
+        merge_output_format=VIDEO_CONTAINER,
+    )
+    assert info["ext"] == "mp4"
 
 
 def test_best_quality_on_hls_only_list_falls_back_to_combined_1080p():
     # What a signed-in session returned with yt-dlp 2026.07.04: no video-only
     # streams, so /best takes the pre-merged 1080p stream.
-    info = select(VIDEO_QUALITY_PRESETS["Best Quality"], HLS_ONLY_1080)
+    info = select(
+        VIDEO_QUALITY_PRESETS["Best Quality"], HLS_ONLY_1080, VIDEO_FORMAT_SORT
+    )
     assert selected_ids(info) == ["96"]
     assert info["height"] == 1080
 

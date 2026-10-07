@@ -20,6 +20,13 @@ from queue import Empty, Queue
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
+from .config import (
+    CUSTOM_VIDEO_QUALITY,
+    VIDEO_CONTAINER,
+    VIDEO_FORMAT_SORT,
+    video_quality_display_name,
+)
+
 if TYPE_CHECKING:
     from .config import Config
 
@@ -130,18 +137,26 @@ def _selected_formats(info: dict[str, Any]) -> list[dict[str, Any]]:
     return info.get("requested_formats") or [info]
 
 
-def _video_rank(info: dict[str, Any]) -> tuple[int, float, float]:
-    """Rank a video selection: resolution, then fps, then total bitrate."""
+def _video_rank(info: dict[str, Any]) -> tuple[int, float, int, int, float]:
+    """Rank a video selection the way VIDEO_FORMAT_SORT ranks single streams.
+
+    Resolution, then fps, then source preference (YouTube Premium's enhanced
+    streams), then direct streams, then total bitrate. HLS bitrates are peak
+    values, not averages, so a selection with HLS parts can't be compared on
+    bitrate with an all-direct one; the direct one wins the tie.
+    """
     selected = _selected_formats(info)
     height = max(
         _display_height(f.get("height") or 0, f.get("width")) for f in selected
     )
     fps = max(f.get("fps") or 0 for f in selected)
+    source = max(f.get("source_preference") or 0 for f in selected)
+    direct = int(all(f.get("protocol") in ("https", "http") for f in selected))
     bitrate = sum(f.get("tbr") or 0 for f in selected)
-    return height, fps, bitrate
+    return height, fps, source, direct, bitrate
 
 
-def _audio_rank(info: dict[str, Any]) -> tuple[int, float, float]:
+def _audio_rank(info: dict[str, Any]) -> tuple[int, float, int, int, float]:
     """Rank an audio-only selection: a pure audio stream first, then its bitrate.
 
     A mode without audio-only formats falls back to a combined video stream,
@@ -150,7 +165,7 @@ def _audio_rank(info: dict[str, Any]) -> tuple[int, float, float]:
     selected = _selected_formats(info)
     pure_audio = all(f.get("vcodec") == "none" for f in selected)
     bitrate = max(f.get("abr") or f.get("tbr") or 0 for f in selected)
-    return int(pure_audio), 0, bitrate
+    return int(pure_audio), 0, 0, 0, bitrate
 
 
 class _ModeLogger:
@@ -185,7 +200,7 @@ class _Candidate:
     mode_opts: dict[str, Any]
     session: Any
     info: dict[str, Any]
-    rank: tuple[int, float, float]
+    rank: tuple[int, float, int, int, float]
 
     @property
     def is_playlist(self) -> bool:
@@ -843,7 +858,13 @@ class DownloadManager:
                 }
             ]
         else:
-            base_opts["format"] = self.config.download.video_quality
+            video_quality = self.config.download.video_quality
+            base_opts["format"] = video_quality
+            # A custom format string is the user's own choice: leave its
+            # ranking and container to yt-dlp's defaults.
+            if video_quality_display_name(video_quality) != CUSTOM_VIDEO_QUALITY:
+                base_opts["format_sort"] = list(VIDEO_FORMAT_SORT)
+                base_opts["merge_output_format"] = VIDEO_CONTAINER
 
         if self.config.ytdl.write_info_json:
             base_opts["writeinfojson"] = True
@@ -901,7 +922,7 @@ class DownloadManager:
             modes.append(("cookie file", {"cookiefile": cookie_file}))
         return modes
 
-    def _rank(self, info: dict[str, Any]) -> tuple[int, float, float]:
+    def _rank(self, info: dict[str, Any]) -> tuple[int, float, int, int, float]:
         """Rank one access mode's format selection for the current download type."""
         if self.config.download.audio_only:
             return _audio_rank(info)
