@@ -4,8 +4,16 @@ import argparse
 from pathlib import Path
 
 import pytest
+from ytdlp_formats import (
+    ADAPTIVE_4K,
+    HLS_ONLY_1080,
+    VP9_ONLY_4K,
+    select,
+    selected_ids,
+)
 
 from flowsnip.config import (
+    VIDEO_QUALITY_PRESETS,
     Config,
     DownloadConfig,
     UIConfig,
@@ -13,7 +21,22 @@ from flowsnip.config import (
     YtdlConfig,
     create_arg_parser,
     get_default_config_path,
+    video_quality_display_name,
 )
+
+# Preset strings shipped before resolution-first presets. Users who saved one of
+# these still have it in config.json.
+_LEGACY_PRESETS = {
+    "Best Quality": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+    "8K (4320p)": "bestvideo[height<=4320][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=4320]+bestaudio/best[ext=mp4]/best",
+    "4K (2160p)": "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[ext=mp4]/best",
+    "1440p": "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio/best[ext=mp4]/best",
+    "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best",
+    "720p": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[ext=mp4][height<=720]/best[height<=720]",
+    "480p": "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[ext=mp4][height<=480]/best[height<=480]",
+    "360p": "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=360]+bestaudio/best[ext=mp4][height<=360]/best[height<=360]",
+    "240p": "bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=240]+bestaudio/best[ext=mp4][height<=240]/best[height<=240]",
+}
 
 # ---------------------------------------------------------------------------
 # DownloadConfig
@@ -28,6 +51,71 @@ def test_download_config_defaults():
     assert cfg.retry_attempts == 2
     assert cfg.cookies_file is None
     assert cfg.cookies_from_browser is None
+
+
+@pytest.mark.parametrize("preset", sorted(_LEGACY_PRESETS))
+def test_legacy_preset_strings_migrate_on_load(preset):
+    cfg = DownloadConfig(video_quality=_LEGACY_PRESETS[preset])
+    assert cfg.video_quality == VIDEO_QUALITY_PRESETS[preset]
+
+
+def test_legacy_preset_migrates_when_loaded_from_file(temp_dir):
+    path = temp_dir / "config.json"
+    path.write_text(
+        '{"download": {"video_quality": "%s"}}' % _LEGACY_PRESETS["4K (2160p)"]
+    )
+    cfg = Config.load_from_file(path)
+    assert cfg.download.video_quality == VIDEO_QUALITY_PRESETS["4K (2160p)"]
+
+
+def test_custom_quality_string_is_kept_as_is():
+    cfg = DownloadConfig(video_quality="best[height<=720]")
+    assert cfg.video_quality == "best[height<=720]"
+
+
+def test_video_quality_display_name_for_preset_and_custom():
+    assert video_quality_display_name(VIDEO_QUALITY_PRESETS["1080p"]) == "1080p"
+    assert video_quality_display_name("best[height<=720]") == "Custom"
+
+
+# ---------------------------------------------------------------------------
+# Video quality presets resolved by yt-dlp's real format selector
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "preset, expected_height",
+    [
+        ("Best Quality", 2160),
+        ("8K (4320p)", 2160),
+        ("4K (2160p)", 2160),
+        ("1440p", 1440),
+        ("1080p", 1080),
+        ("720p", 720),
+        ("480p", 480),
+        ("360p", 360),
+        ("240p", 240),
+    ],
+)
+def test_preset_picks_highest_stream_within_cap_when_top_tiers_are_vp9_only(
+    preset, expected_height
+):
+    info = select(VIDEO_QUALITY_PRESETS[preset], VP9_ONLY_4K)
+    assert info["height"] == expected_height
+    assert len(selected_ids(info)) == 2  # separate video + audio, merged
+
+
+def test_4k_preset_prefers_av1_over_vp9_at_same_height():
+    info = select(VIDEO_QUALITY_PRESETS["4K (2160p)"], ADAPTIVE_4K)
+    assert selected_ids(info) == ["401", "251"]
+
+
+def test_best_quality_on_hls_only_list_falls_back_to_combined_1080p():
+    # What a signed-in session returned with yt-dlp 2026.07.04: no video-only
+    # streams, so /best takes the pre-merged 1080p stream.
+    info = select(VIDEO_QUALITY_PRESETS["Best Quality"], HLS_ONLY_1080)
+    assert selected_ids(info) == ["96"]
+    assert info["height"] == 1080
 
 
 def test_download_config_creates_directory(temp_dir):
@@ -184,6 +272,14 @@ def test_get_default_config_path():
     path = get_default_config_path()
     assert path.name == "config.json"
     assert path.parent.exists()
+
+
+def test_default_config_path_is_isolated_from_real_home(real_home, _isolated_home):
+    # GUI tests call on_closing(), which saves to this path; it must never be
+    # the developer's real config.
+    path = get_default_config_path()
+    assert path == _isolated_home / ".config" / "flowsnip" / "config.json"
+    assert path != real_home / ".config" / "flowsnip" / "config.json"
 
 
 # ---------------------------------------------------------------------------

@@ -6,8 +6,10 @@ Handles parallel downloads, queue management, and error handling for yt-dlp oper
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -80,6 +82,24 @@ def _get_js_runtime() -> dict | None:
     return _JS_RUNTIME  # type: ignore[return-value]
 
 
+def _bundled_ffmpeg_dir() -> str | None:
+    """Directory holding the ffmpeg shipped inside a packaged build, if any.
+
+    PyInstaller unpacks bundled data next to the app (sys._MEIPASS), which is
+    not on PATH, so yt-dlp has to be told where ffmpeg is or every
+    video+audio merge fails.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    for directory in (getattr(sys, "_MEIPASS", None), os.path.dirname(sys.executable)):
+        if directory and any(
+            os.path.isfile(os.path.join(directory, name))
+            for name in ("ffmpeg", "ffmpeg.exe")
+        ):
+            return directory
+    return None
+
+
 # Keywords that indicate a video requires authentication
 _AUTH_KEYWORDS = frozenset(
     [
@@ -101,9 +121,95 @@ _AUTH_KEYWORDS = frozenset(
 
 MAX_HISTORY = 200  # max items kept in completed_downloads / failed_downloads
 
+# Substrings of a browser-cookie extraction failure (browser running, DB locked).
+_COOKIE_DB_ERRORS = ("could not copy", "database", "locked")
 
-def _height_to_label(height: int) -> str:
-    """Convert pixel height to a human-readable resolution label."""
+
+def _selected_formats(info: dict[str, Any]) -> list[dict[str, Any]]:
+    """The formats yt-dlp chose in a processed info dict, in merge order."""
+    return info.get("requested_formats") or [info]
+
+
+def _video_rank(info: dict[str, Any]) -> tuple[int, float, float]:
+    """Rank a video selection: resolution, then fps, then total bitrate."""
+    selected = _selected_formats(info)
+    height = max(
+        _display_height(f.get("height") or 0, f.get("width")) for f in selected
+    )
+    fps = max(f.get("fps") or 0 for f in selected)
+    bitrate = sum(f.get("tbr") or 0 for f in selected)
+    return height, fps, bitrate
+
+
+def _audio_rank(info: dict[str, Any]) -> tuple[int, float, float]:
+    """Rank an audio-only selection: a pure audio stream first, then its bitrate.
+
+    A mode without audio-only formats falls back to a combined video stream,
+    whose resolution and bitrate say nothing about its audio.
+    """
+    selected = _selected_formats(info)
+    pure_audio = all(f.get("vcodec") == "none" for f in selected)
+    bitrate = max(f.get("abr") or f.get("tbr") or 0 for f in selected)
+    return int(pure_audio), 0, bitrate
+
+
+class _ModeLogger:
+    """yt-dlp logger that names the access mode on errors.
+
+    One mode failing is expected when another succeeds, so its error must not
+    read as if the download failed.
+    """
+
+    def __init__(self, inner: Any, label: str) -> None:
+        self._inner = inner
+        self._label = label
+
+    def debug(self, msg: str) -> None:
+        self._inner.debug(msg)
+
+    def info(self, msg: str) -> None:
+        self._inner.info(msg)
+
+    def warning(self, msg: str) -> None:
+        self._inner.warning(msg)
+
+    def error(self, msg: str) -> None:
+        self._inner.error(f"[{self._label}] {msg.removeprefix('ERROR: ')}")
+
+
+@dataclass
+class _Candidate:
+    """One access mode's extraction result, ready to download."""
+
+    label: str
+    mode_opts: dict[str, Any]
+    session: Any
+    info: dict[str, Any]
+    rank: tuple[int, float, float]
+
+    @property
+    def is_playlist(self) -> bool:
+        return self.info.get("_type") in ("playlist", "multi_video")
+
+
+def _display_height(height: int, width: int | None = None) -> int:
+    """Resolution class of a frame, independent of aspect ratio and orientation.
+
+    A 1920x1012 cinemascope frame is 1080p and a 1080x1920 portrait frame is
+    1080p: take the short side, or the 16:9 height implied by the long side if
+    that is larger.
+    """
+    if not width:
+        return height
+    short_side, long_side = sorted((width, height))
+    return max(short_side, round(long_side * 9 / 16))
+
+
+def _height_to_label(height: int, width: int | None = None) -> str:
+    """Convert a frame size to a human-readable resolution label."""
+    height = _display_height(height, width)
+    if height >= 4320:
+        return "8K"
     if height >= 2160:
         return "4K"
     if height >= 1440:
@@ -689,9 +795,12 @@ class DownloadManager:
             elif d["status"] == "finished":
                 download_item.progress = 100.0
                 download_item.output_path = Path(d.get("filename", ""))
-                height = (d.get("info_dict") or {}).get("height") or 0
+                info_dict = d.get("info_dict") or {}
+                height = info_dict.get("height") or 0
                 if height:
-                    download_item.resolution = _height_to_label(height)
+                    download_item.resolution = _height_to_label(
+                        height, info_dict.get("width")
+                    )
 
                 if self.progress_callback:
                     self.progress_callback("download_progress", download_item)
@@ -746,81 +855,282 @@ class DownloadManager:
         if self.config.ytdl.add_metadata:
             base_opts["addmetadata"] = True
 
+        ffmpeg_dir = _bundled_ffmpeg_dir()
+        if ffmpeg_dir:
+            base_opts["ffmpeg_location"] = ffmpeg_dir
+
         return base_opts
 
-    def _run_ydl(self, download_item: DownloadItem, opts: dict) -> None:
-        """Execute a single yt-dlp download attempt with the given options."""
-        from yt_dlp.utils import DownloadError, ExtractorError
+    def _log(self, message: str) -> None:
+        """Send a line to the activity log, if anyone is listening."""
+        if self.progress_callback:
+            self.progress_callback("log_message", {"message": message})
 
+    def _aborted(self, download_item: DownloadItem) -> bool:
+        """True once the item was cancelled or all downloads were stopped."""
+        return (
+            download_item.status == DownloadStatus.CANCELLED
+            or self._stop_event.is_set()
+        )
+
+    def _close_quietly(self, session: Any) -> None:
+        """Close a yt-dlp session without letting cleanup fail a finished download.
+
+        Closing writes the cookie jar back to a cookie file, which can fail
+        (malformed or read-only file) after the download already succeeded.
+        """
         try:
-            with _get_yt_dlp().YoutubeDL(opts) as ydl:  # type: ignore[arg-type]
-                ydl.download([download_item.url])
-        except (DownloadError, ExtractorError) as e:
-            raise Exception(f"yt-dlp error: {e}")
-
-    def _download_worker(self, download_item: DownloadItem) -> None:
-        """Coordinator that tries each download strategy in priority order."""
-        log_obj = self._make_ydl_logger(download_item)
-        progress_hook = self._make_progress_hook(download_item)
-        base_opts = self._build_base_opts(download_item, progress_hook, log_obj)
-
-        # Strategy A: browser cookies (highest priority).
-        # yt-dlp extracts PO tokens directly from the browser session, bypassing bot checks.
-        if self.config.download.cookies_from_browser:
-            opts_browser = {
-                **base_opts,
-                "cookiesfrombrowser": (
-                    self.config.download.cookies_from_browser,
-                    None,
-                    None,
-                    None,
-                ),
-            }
-            try:
-                self._run_ydl(download_item, opts_browser)
-                return
-            except Exception as e:
-                msg = str(e).lower()
-                if "could not copy" in msg or "database" in msg or "locked" in msg:
-                    if self.progress_callback:
-                        self.progress_callback(
-                            "log_message",
-                            {
-                                "message": f"Could not extract cookies from "
-                                f"{self.config.download.cookies_from_browser} "
-                                "(close the browser and try again). Falling back..."
-                            },
-                        )
-                elif not any(kw in msg for kw in _AUTH_KEYWORDS):
-                    raise
-
-        # Strategy B: default yt-dlp with Firefox user-agent - works for most public videos.
-        opts_public = {
-            **base_opts,
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-        }
-        try:
-            self._run_ydl(download_item, opts_public)
-            return
+            session.close()
         except Exception as e:
-            msg = str(e).lower()
-            if not any(kw in msg for kw in _AUTH_KEYWORDS):
-                raise
+            self._log(f"Could not close a yt-dlp session cleanly: {e}")
 
-        # Strategy C: cookie file for auth-required content.
-        if not self.config.download.cookies_file:
-            raise Exception(
+    def _access_modes(self) -> list[tuple[str, dict[str, Any]]]:
+        """Every configured way to reach a video, in tie-break order."""
+        browser = self.config.download.cookies_from_browser
+        cookie_file = self.config.download.cookies_file
+        modes: list[tuple[str, dict[str, Any]]] = []
+        if browser:
+            modes.append(
+                (
+                    f"signed in via {browser}",
+                    {"cookiesfrombrowser": (browser, None, None, None)},
+                )
+            )
+        modes.append(("signed out", {}))
+        if cookie_file:
+            modes.append(("cookie file", {"cookiefile": cookie_file}))
+        return modes
+
+    def _rank(self, info: dict[str, Any]) -> tuple[int, float, float]:
+        """Rank one access mode's format selection for the current download type."""
+        if self.config.download.audio_only:
+            return _audio_rank(info)
+        return _video_rank(info)
+
+    def _probe_access_modes(
+        self,
+        download_item: DownloadItem,
+        base_opts: dict[str, Any],
+        sessions: contextlib.ExitStack,
+    ) -> tuple[list[_Candidate], list[tuple[str, str]]]:
+        """Extract the video once per access mode; a failing mode never blocks the rest.
+
+        YouTube serves signed-in and signed-out sessions through different player
+        clients, and which of them can see the top resolutions changes over time,
+        so each mode's own format selection is kept for comparison (ADR 0003).
+        """
+        candidates: list[_Candidate] = []
+        failures: list[tuple[str, str]] = []
+        modes = self._access_modes()
+        for label, mode_opts in modes:
+            if self._aborted(download_item):
+                break
+            # Playlist entries stay unresolved here, so a playlist URL isn't
+            # extracted in full once per mode before anything downloads.
+            probe_opts = {**base_opts, **mode_opts, "extract_flat": "in_playlist"}
+            if len(modes) > 1:
+                probe_opts["logger"] = _ModeLogger(base_opts["logger"], label)
+            try:
+                session = _get_yt_dlp().YoutubeDL(probe_opts)  # type: ignore[arg-type]
+                sessions.callback(self._close_quietly, session)
+                info = session.extract_info(download_item.url, download=False)
+                if not info:
+                    raise Exception("yt-dlp returned no video information")
+                rank = self._rank(info)
+            except Exception as e:
+                failures.append((label, str(e)))
+                if "cookiesfrombrowser" in mode_opts and any(
+                    marker in str(e).lower() for marker in _COOKIE_DB_ERRORS
+                ):
+                    self._log(
+                        f"Could not extract cookies from "
+                        f"{self.config.download.cookies_from_browser} "
+                        "(close the browser and try again). Falling back..."
+                    )
+                continue
+            candidates.append(_Candidate(label, mode_opts, session, info, rank))
+        return candidates, failures
+
+    def _no_access_error(self, failures: list[tuple[str, str]]) -> Exception:
+        """Build the error raised when no access mode could extract the video."""
+        has_cookie_source = bool(
+            self.config.download.cookies_from_browser
+            or self.config.download.cookies_file
+        )
+        if not has_cookie_source and any(
+            keyword in message.lower()
+            for _, message in failures
+            for keyword in _AUTH_KEYWORDS
+        ):
+            return Exception(
                 "This video requires YouTube login. "
                 "Set a browser in Settings > Browser Cookies (recommended), "
                 "or export a cookies.txt file."
             )
-        if self.progress_callback:
-            self.progress_callback(
-                "log_message",
-                {"message": "Auth required - retrying with cookie file..."},
+        return self._ytdlp_error(failures)
+
+    @staticmethod
+    def _ytdlp_error(failures: list[tuple[str, str]]) -> Exception:
+        """Combine per-mode failures into one error, naming modes only if several."""
+        if len(failures) == 1:
+            return Exception(f"yt-dlp error: {failures[0][1]}")
+        return Exception(
+            "yt-dlp error: "
+            + "; ".join(f"{label}: {message}" for label, message in failures)
+        )
+
+    def _rank_candidates(self, candidates: list[_Candidate]) -> list[_Candidate]:
+        """Order candidates best first; equal ranks keep the configured mode order."""
+        playlists = [c for c in candidates if c.is_playlist]
+        if playlists:
+            # Entries aren't resolved, so there is nothing to compare, and a mode
+            # that sees the playlist beats one that fell back to a single video.
+            return playlists
+        # sorted() is stable, so equal ranks keep the configured mode order.
+        ranked = sorted(candidates, key=lambda c: c.rank, reverse=True)
+        if not self.config.download.audio_only:
+            self._report_mode_disagreement(candidates, ranked[0])
+        return ranked
+
+    def _report_mode_disagreement(
+        self, candidates: list[_Candidate], best: _Candidate
+    ) -> None:
+        """Say so when access modes offer different resolutions, so a gap is never silent."""
+        if len({c.rank[0] for c in candidates}) < 2:
+            return
+        offers = "; ".join(
+            f"{c.label} offers {_height_to_label(c.rank[0])}" for c in candidates
+        )
+        self._log(f"Quality check: {offers} - using {best.label}")
+
+    @staticmethod
+    def _output_video_height(session: Any, result: dict[str, Any] | None) -> int:
+        """Resolution class of the video actually written to disk; 0 if unknown.
+
+        Read with ffprobe from the finished file, not from yt-dlp's format
+        metadata, so a mismatch between the two can be noticed.
+        """
+        paths = [
+            d.get("filepath") for d in (result or {}).get("requested_downloads") or []
+        ]
+        paths = [path for path in paths if path and os.path.isfile(path)]
+        if not paths:
+            return 0
+        from yt_dlp.postprocessor import FFmpegPostProcessor
+
+        ffprobe = FFmpegPostProcessor(session)
+        if not ffprobe.probe_available:
+            return 0
+        height = 0
+        for path in paths:
+            try:
+                streams = ffprobe.get_metadata_object(path).get("streams") or []
+            except Exception:
+                continue
+            for stream in streams:
+                if stream.get("codec_type") != "video":
+                    continue
+                if (stream.get("disposition") or {}).get("attached_pic"):
+                    continue  # embedded cover art, not the video
+                height = max(
+                    height,
+                    _display_height(stream.get("height") or 0, stream.get("width")),
+                )
+        return height
+
+    def _check_delivered_quality(
+        self,
+        download_item: DownloadItem,
+        candidate: _Candidate,
+        result: dict[str, Any] | None,
+    ) -> None:
+        """Warn if the file on disk is below the resolution that was selected."""
+        if self.config.download.audio_only or candidate.is_playlist:
+            return
+        selected = candidate.rank[0]
+        delivered = self._output_video_height(candidate.session, result)
+        if delivered and delivered < selected:
+            self._log(
+                f"Quality warning: {download_item.title} was delivered at "
+                f"{_height_to_label(delivered)} but {_height_to_label(selected)} "
+                "was selected"
             )
-        opts_cookiefile = {**base_opts, "cookiefile": self.config.download.cookies_file}
-        self._run_ydl(download_item, opts_cookiefile)
+
+    def _download_candidate(
+        self,
+        download_item: DownloadItem,
+        candidate: _Candidate,
+        base_opts: dict[str, Any],
+        attempt: int,
+    ) -> dict[str, Any] | None:
+        """Download one access mode's result; return yt-dlp's processed info."""
+        if candidate.is_playlist:
+            # Let yt-dlp resolve and download entries one at a time, as before.
+            opts = {**base_opts, **candidate.mode_opts}
+            ydl = _get_yt_dlp().YoutubeDL(opts)  # type: ignore[arg-type]
+            try:
+                ydl.download([download_item.url])
+            finally:
+                self._close_quietly(ydl)
+            return None
+        result: dict[str, Any] | None
+        if attempt == 0:
+            # Reuses the probe's session and info dict: no second extraction.
+            result = candidate.session.process_ie_result(candidate.info, download=True)
+        else:
+            # A fallback starts after an earlier attempt ran for a while; extract
+            # again so its signed media URLs haven't expired.
+            result = candidate.session.extract_info(download_item.url, download=True)
+        return result
+
+    def _download_best(
+        self,
+        download_item: DownloadItem,
+        ranked: list[_Candidate],
+        base_opts: dict[str, Any],
+    ) -> None:
+        """Download the best-ranked candidate, falling back down the ranking on failure."""
+        from yt_dlp.utils import YoutubeDLError
+
+        failures: list[tuple[str, str]] = []
+        for index, candidate in enumerate(ranked):
+            if self._aborted(download_item):
+                return
+            # A failed attempt may have flagged or labelled a different file.
+            download_item.already_exists = False
+            download_item.resolution = ""
+            try:
+                result = self._download_candidate(
+                    download_item, candidate, base_opts, index
+                )
+            except YoutubeDLError as e:
+                failures.append((candidate.label, str(e)))
+                if index + 1 < len(ranked):
+                    self._log(
+                        f"Download via {candidate.label} failed - trying "
+                        f"{ranked[index + 1].label}"
+                    )
+                continue
+            self._check_delivered_quality(download_item, candidate, result)
+            return
+        raise self._ytdlp_error(failures)
+
+    def _download_worker(self, download_item: DownloadItem) -> None:
+        """Probe every access mode, then download the one offering the best quality."""
+        log_obj = self._make_ydl_logger(download_item)
+        progress_hook = self._make_progress_hook(download_item)
+        base_opts = self._build_base_opts(download_item, progress_hook, log_obj)
+
+        with contextlib.ExitStack() as sessions:
+            candidates, failures = self._probe_access_modes(
+                download_item, base_opts, sessions
+            )
+            if self._aborted(download_item):
+                return
+            if not candidates:
+                raise self._no_access_error(failures)
+            ranked = self._rank_candidates(candidates)
+            self._download_best(download_item, ranked, base_opts)
 
     def __del__(self) -> None:
         """Cleanup when the manager is destroyed."""

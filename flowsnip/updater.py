@@ -15,6 +15,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 _FLOWSNIP_API = "https://api.github.com/repos/rajeshsub/FlowSnip/releases/latest"
+FLOWSNIP_RELEASES_URL = "https://github.com/rajeshsub/FlowSnip/releases/latest"
 _YTDLP_API = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 _TIMEOUT = 5  # seconds
 
@@ -87,6 +88,11 @@ def should_check(last_checked: datetime | None, frequency: str) -> bool:
     if last_checked.tzinfo is None:
         last_checked = last_checked.replace(tzinfo=timezone.utc)
     return now - last_checked >= delta
+
+
+def is_frozen() -> bool:
+    """Return True when running as a packaged (PyInstaller) build."""
+    return bool(getattr(sys, "frozen", False))
 
 
 def update_ytdlp() -> bool:

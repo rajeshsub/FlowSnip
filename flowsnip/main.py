@@ -48,7 +48,7 @@ def _apply_ytdlp_update(app: Any, new_ytdlp: str) -> None:
     """Run yt-dlp in-place upgrade and post result banner back to the GUI thread."""
     success = updater.update_ytdlp()
     msg = (
-        f"yt-dlp updated to {new_ytdlp}."
+        f"yt-dlp updated to {new_ytdlp}. Restart FlowSnip to use it."
         if success
         else "yt-dlp update failed - check your connection."
     )
@@ -65,6 +65,7 @@ def _run_update_checks(app: Any, config: Config, config_path: Path | str) -> Non
     if not updater.should_check(cfg.last_checked, cfg.frequency):
         return
 
+    new_version = None
     if cfg.check_flowsnip:
         new_version = updater.check_flowsnip_update(__version__)
         if new_version:
@@ -79,11 +80,23 @@ def _run_update_checks(app: Any, config: Config, config_path: Path | str) -> Non
             )
 
     if cfg.check_ytdlp:
-        import yt_dlp
+        from yt_dlp.version import __version__ as current_ytdlp
 
-        current_ytdlp = getattr(yt_dlp, "__version__", "0")
         new_ytdlp = updater.check_ytdlp_update(current_ytdlp)
-        if new_ytdlp:
+        if new_ytdlp and updater.is_frozen():
+            # A packaged build can't pip-install into itself; yt-dlp only
+            # changes with a FlowSnip release. A FlowSnip banner already says so.
+            if not new_version:
+                app.root.after(
+                    0,
+                    lambda v=new_ytdlp: app.show_update_banner(
+                        f"yt-dlp {v} is available. Installer builds get it with "
+                        "a FlowSnip release.",
+                        "Releases",
+                        lambda: webbrowser.open(updater.FLOWSNIP_RELEASES_URL),
+                    ),
+                )
+        elif new_ytdlp:
             _ytdlp_ver: str = new_ytdlp  # narrow str | None → str for mypy
 
             def _on_update_click(v: str = _ytdlp_ver) -> None:

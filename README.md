@@ -27,7 +27,13 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ### Download Features
 - **Parallel Processing** - Configurable concurrent downloads (1-10 simultaneous)
-- **Video Quality Selection** - Easy selection: 360p, 480p, 720p, 1080p, 1440p, 4K
+- **Video Quality Selection** - Best Quality, or a cap of 8K, 4K, 1440p, 1080p, 720p, 480p, 360p or 240p. Each preset takes the highest resolution at or below its cap in whatever codec offers it (AV1, VP9 or H.264), paired with the best audio (usually Opus). Most downloads therefore save as `.webm` or `.mkv` rather than `.mp4`. A format string set outside the presets (e.g. via `--quality`) shows as "Custom".
+- **Quality-aware sign-in** - YouTube serves signed-in and signed-out sessions different formats, and which one reaches the highest resolution changes over time.
+  - When Browser Cookies or a cookie file is set, FlowSnip fetches each video's formats once per access mode (signed in, signed out, cookie file).
+  - It downloads from the mode offering the best quality, and falls back to the next mode if that download fails.
+  - This applies to every site, and costs one extra request per video for each cookie source configured.
+  - The activity log says when the modes differ, and warns if the finished file (checked with ffprobe) is below the selected resolution.
+  - Playlists are not compared: they download through the first mode that can see the playlist.
 - **Audio-Only Downloads** - MP3 extraction with quality options (96-320 kbps)
 - **Queue Management** - Add, pause, resume, cancel, retry downloads
 - **Batch Processing** - Multiple URLs via copy-paste (newline separated)
@@ -40,6 +46,7 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 ### Updates
 - **Auto-update Checks** - Checks for new FlowSnip releases and yt-dlp updates on startup
 - **In-app Banner** - Non-intrusive notification with one-click update or dismiss
+- **yt-dlp updates** - When run from source, "Update now" upgrades yt-dlp with pip; restart FlowSnip to use it. Installer builds bundle a fixed yt-dlp version that can't be upgraded in place, so their banner points to the latest FlowSnip release instead. Keeping yt-dlp current matters: YouTube changes regularly reduce the formats older yt-dlp versions can see.
 - **Configurable Frequency** - Every launch, daily, weekly, or never; individually toggleable per component
 
 ### Legal Acknowledgment
@@ -90,6 +97,7 @@ Open **System Settings → Privacy & Security**, scroll down, and click **Open A
 - **Tk runtime for the GUI** - Required to launch the desktop interface. Python package dependencies install fine with `uv`, but Linux still needs the system Tk package:
   - Fedora/RHEL: `sudo dnf install python3-tkinter`
   - Debian/Ubuntu: `sudo apt install python3-tk`
+- **ffmpeg** - Required: every video preset downloads separate video and audio streams and merges them with ffmpeg (ffprobe also verifies the result). Installer builds bundle it; from source, install it with your package manager (e.g. `sudo dnf install ffmpeg`, `sudo apt install ffmpeg`, `brew install ffmpeg`).
 - **Node.js** *(optional)* - Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. YouTube throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
 
 ### Quick Start (Recommended)
@@ -171,7 +179,7 @@ python -m flowsnip.main
 ```bash
 # Test different configurations
 python -m flowsnip.main --download-dir ~/Videos
-python -m flowsnip.main --quality "best[height<=720]"
+python -m flowsnip.main --quality "bestvideo[height<=720]+bestaudio/best[height<=720]"
 python -m flowsnip.main --audio-only --audio-quality 320
 python -m flowsnip.main --max-parallel 5 --theme light
 ```

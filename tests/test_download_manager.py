@@ -1,11 +1,14 @@
 """Tests for flowsnip/download_manager.py - targets 100% line coverage."""
 
 import os
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from ytdlp_formats import ADAPTIVE_4K, HLS_ONLY_1080, fmt, select
 
 from flowsnip.download_manager import (
     _UNSET,
@@ -504,182 +507,776 @@ def test_get_queue_status(download_manager):
 
 
 # ---------------------------------------------------------------------------
-# _download_worker - strategy paths
+# _download_worker - access modes (signed in / signed out / cookie file)
 # ---------------------------------------------------------------------------
 
-
-def test_worker_strategy_b_success(download_manager, sample_item):
-    factory = _make_ytdl()
-    _run_worker(download_manager, sample_item, factory)
-    # No exception means success
+_BEST = "bestvideo+bestaudio/best"
+_LOGIN_HINT = "requires YouTube login"
 
 
-def test_worker_strategy_b_no_js_runtime(download_manager, sample_item):
-    with patch("flowsnip.download_manager._get_js_runtime", return_value=None):
-        factory = _make_ytdl()
-        opts = _run_worker(download_manager, sample_item, factory)
-    assert "js_runtimes" not in opts
+def _mode_of(opts):
+    if "cookiesfrombrowser" in opts:
+        return "browser"
+    if "cookiefile" in opts:
+        return "file"
+    return "public"
 
 
-def test_worker_strategy_a_success(download_manager, sample_item):
+def _fake_sessions(
+    *, infos=None, extract_errors=None, download_errors=None, close_errors=None
+):
+    """Fake yt_dlp.YoutubeDL keyed by access mode.
+
+    infos: mode -> processed info dict returned by extract_info.
+    extract_errors / download_errors / close_errors: mode -> exception to raise
+    from the probe, from any download call, or from close().
+    Records the opts per mode, every extraction, downloads in order, and closes.
+    """
+    record = {
+        "opts": {},
+        "all_opts": [],
+        "extract_calls": [],
+        "downloaded": [],
+        "url_downloads": [],
+        "closed": [],
+    }
+
+    def constructor(opts):
+        mode = _mode_of(opts)
+        record["opts"][mode] = opts
+        record["all_opts"].append(opts)
+        session = MagicMock()
+
+        def fake_download(info):
+            if mode in (download_errors or {}):
+                raise download_errors[mode]
+            for part in info.get("requested_formats") or [info]:
+                for hook in opts["progress_hooks"]:
+                    hook({"status": "finished", "filename": "out", "info_dict": part})
+            record["downloaded"].append(mode)
+            return info
+
+        def extract_info(url, download=True):
+            record["extract_calls"].append((mode, download))
+            if not download and mode in (extract_errors or {}):
+                raise extract_errors[mode]
+            info = (infos or {}).get(mode, {"title": "Test Video"})
+            return fake_download(info) if download else info
+
+        def process_ie_result(info, download=True):
+            assert download is True
+            return fake_download(info)
+
+        def download(urls):
+            if mode in (download_errors or {}):
+                raise download_errors[mode]
+            record["url_downloads"].append((mode, list(urls), opts))
+
+        def close():
+            record["closed"].append(mode)
+            if mode in (close_errors or {}):
+                raise close_errors[mode]
+
+        session.extract_info = extract_info
+        session.process_ie_result = process_ie_result
+        session.download = download
+        session.close = close
+        return session
+
+    constructor.record = record
+    return constructor
+
+
+def _work(manager, item, sessions):
+    with patch("yt_dlp.YoutubeDL", side_effect=sessions):
+        manager._download_worker(item)
+    return sessions.record
+
+
+def _logged(mock_callback):
+    return [
+        c.args[1]["message"]
+        for c in mock_callback.call_args_list
+        if c.args[0] == "log_message"
+    ]
+
+
+def test_worker_without_cookies_probes_once_and_downloads_that_session(
+    download_manager, sample_item
+):
+    sessions = _fake_sessions(infos={"public": select(_BEST, ADAPTIVE_4K)})
+    record = _work(download_manager, sample_item, sessions)
+    assert list(record["opts"]) == ["public"]
+    assert record["extract_calls"] == [("public", False)]
+    assert record["downloaded"] == ["public"]
+    assert sample_item.resolution == "4K"
+
+
+def test_worker_prefers_signed_out_4k_over_signed_in_1080p_hls(
+    download_manager, sample_item
+):
+    # The reported bug: signed-in clients only offered pre-merged 1080p HLS.
     download_manager.config.download.cookies_from_browser = "firefox"
-    factory = _make_ytdl()
-    _run_worker(download_manager, sample_item, factory)
-    assert "cookiesfrombrowser" in factory.captured["opts"]
-    download_manager.config.download.cookies_from_browser = None
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+    assert sample_item.resolution == "4K"
 
 
-def test_worker_strategy_a_cookie_db_error_falls_through(
+def test_worker_prefers_signed_in_when_it_offers_higher_resolution(
+    download_manager, sample_item
+):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, ADAPTIVE_4K),
+            "public": select(_BEST, HLS_ONLY_1080),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
+
+
+def test_worker_keeps_signed_in_on_equal_rank_without_quality_log(
     download_manager, sample_item, mock_callback
 ):
-    download_manager.config.download.cookies_from_browser = "chrome"
-    call_count = [0]
-
-    def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            instance.download = MagicMock(
-                side_effect=Exception("could not copy database")
-            )
-        else:
-            instance.download = MagicMock()
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        download_manager._download_worker(sample_item)
-
-    mock_callback.assert_any_call("log_message", mock_callback.call_args_list[-1][0][1])
-    download_manager.config.download.cookies_from_browser = None
+    download_manager.config.download.cookies_from_browser = "firefox"
+    same = select(_BEST, ADAPTIVE_4K)
+    sessions = _fake_sessions(infos={"browser": same, "public": same})
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
+    assert not [m for m in _logged(mock_callback) if m.startswith("Quality check")]
 
 
-def test_worker_strategy_a_locked_error_falls_through(download_manager, sample_item):
-    download_manager.config.download.cookies_from_browser = "chrome"
-    call_count = [0]
-
-    def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            instance.download = MagicMock(side_effect=Exception("locked"))
-        else:
-            instance.download = MagicMock()
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        download_manager._download_worker(sample_item)
-    download_manager.config.download.cookies_from_browser = None
-
-
-def test_worker_strategy_a_auth_error_falls_through(download_manager, sample_item):
-    download_manager.config.download.cookies_from_browser = "chrome"
-    call_count = [0]
-
-    def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            # yt-dlp wraps as DownloadError; our code catches generic Exception
-            instance.download = MagicMock(
-                side_effect=Exception("yt-dlp error: login required")
-            )
-        else:
-            instance.download = MagicMock()
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        download_manager._download_worker(sample_item)
-    download_manager.config.download.cookies_from_browser = None
+@pytest.mark.parametrize(
+    "signed_in, signed_out",
+    [
+        ({"fps": 30, "tbr": 9000}, {"fps": 60, "tbr": 4000}),  # fps beats bitrate
+        ({"fps": 30, "tbr": 4000}, {"fps": 30, "tbr": 9000}),  # then bitrate
+    ],
+)
+def test_worker_breaks_height_ties_by_fps_then_bitrate(
+    download_manager, sample_item, signed_in, signed_out
+):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    base = {"title": "Test Video", "height": 1080, "width": 1920}
+    sessions = _fake_sessions(
+        infos={"browser": {**base, **signed_in}, "public": {**base, **signed_out}}
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
 
 
-def test_worker_strategy_a_other_error_raises(download_manager, sample_item):
-    from yt_dlp.utils import DownloadError
-
-    download_manager.config.download.cookies_from_browser = "chrome"
-
-    def factory(opts):
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        instance.download = MagicMock(
-            side_effect=DownloadError("some unrecognised error XYZ")
-        )
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        with pytest.raises(Exception, match="yt-dlp error"):
-            download_manager._download_worker(sample_item)
-    download_manager.config.download.cookies_from_browser = None
-
-
-def test_worker_strategy_b_auth_error_reaches_c_no_cookie_file(
+def test_worker_uses_signed_in_when_signed_out_fails_with_unrecognised_error(
     download_manager, sample_item
 ):
     from yt_dlp.utils import DownloadError
 
-    def factory(opts):
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        instance.download = MagicMock(
-            side_effect=DownloadError("login required to watch this")
-        )
-        return instance
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={"browser": select(_BEST, ADAPTIVE_4K)},
+        extract_errors={
+            "public": DownloadError(
+                "Join this channel to get access to members-only content"
+            )
+        },
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
 
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        with pytest.raises(Exception, match="login"):
-            download_manager._download_worker(sample_item)
+
+def test_worker_cookie_db_error_is_explained_and_signed_out_used(
+    download_manager, sample_item, mock_callback
+):
+    download_manager.config.download.cookies_from_browser = "chrome"
+    sessions = _fake_sessions(
+        infos={"public": select(_BEST, ADAPTIVE_4K)},
+        extract_errors={"browser": Exception("could not copy chrome cookie database")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+    assert (
+        "Could not extract cookies from chrome (close the browser and try again). "
+        "Falling back..."
+    ) in _logged(mock_callback)
 
 
-def test_worker_strategy_b_other_error_raises(download_manager, sample_item):
+def test_worker_cookie_file_wins_when_it_is_the_only_mode_that_extracts(
+    download_manager, sample_item
+):
     from yt_dlp.utils import DownloadError
 
-    def factory(opts):
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        instance.download = MagicMock(side_effect=DownloadError("network timeout xyz"))
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        with pytest.raises(Exception, match="yt-dlp error"):
-            download_manager._download_worker(sample_item)
+    download_manager.config.download.cookies_file = "/tmp/cookies.txt"
+    sessions = _fake_sessions(
+        infos={"file": select(_BEST, ADAPTIVE_4K)},
+        extract_errors={"public": DownloadError("Sign in to confirm your age")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["opts"]["file"]["cookiefile"] == "/tmp/cookies.txt"
+    assert record["downloaded"] == ["file"]
 
 
-def test_worker_strategy_c_with_cookie_file(
+def test_worker_all_modes_fail_with_auth_error_and_no_cookie_source_hints_login(
+    download_manager, sample_item
+):
+    from yt_dlp.utils import DownloadError
+
+    sessions = _fake_sessions(
+        extract_errors={"public": DownloadError("Sign in to confirm you're not a bot")}
+    )
+    with pytest.raises(Exception, match=_LOGIN_HINT):
+        _work(download_manager, sample_item, sessions)
+
+
+def test_worker_all_modes_fail_names_each_mode(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        extract_errors={
+            "browser": DownloadError("tv client unplayable"),
+            "public": DownloadError("network timeout xyz"),
+        }
+    )
+    with pytest.raises(Exception, match="yt-dlp error") as err:
+        _work(download_manager, sample_item, sessions)
+    assert "signed in via firefox: tv client unplayable" in str(err.value)
+    assert "signed out: network timeout xyz" in str(err.value)
+    assert _LOGIN_HINT not in str(err.value)
+
+
+def test_worker_single_mode_failure_keeps_plain_error(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    sessions = _fake_sessions(
+        extract_errors={"public": DownloadError("network timeout xyz")}
+    )
+    with pytest.raises(Exception, match=r"^yt-dlp error: network timeout xyz$"):
+        _work(download_manager, sample_item, sessions)
+
+
+def test_worker_falls_back_to_next_ranked_mode_when_download_fails(
+    download_manager, sample_item, mock_callback
+):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        },
+        download_errors={"public": DownloadError("HTTP Error 403: Forbidden")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
+    assert sample_item.resolution == "1080p"
+    assert "Download via signed out failed - trying signed in via firefox" in _logged(
+        mock_callback
+    )
+
+
+def test_worker_raises_when_every_download_attempt_fails(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        },
+        download_errors={
+            "browser": DownloadError("fragment 3 missing"),
+            "public": DownloadError("HTTP Error 403: Forbidden"),
+        },
+    )
+    with pytest.raises(Exception, match="yt-dlp error") as err:
+        _work(download_manager, sample_item, sessions)
+    assert "signed out: HTTP Error 403" in str(err.value)
+    assert "signed in via firefox: fragment 3 missing" in str(err.value)
+
+
+def test_worker_logs_when_modes_disagree_on_resolution(
+    download_manager, sample_item, mock_callback
+):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        }
+    )
+    _work(download_manager, sample_item, sessions)
+    assert (
+        "Quality check: signed in via firefox offers 1080p; signed out offers 4K "
+        "- using signed out"
+    ) in _logged(mock_callback)
+
+
+def test_worker_warns_when_file_on_disk_is_below_selection(
+    download_manager, sample_item, mock_callback
+):
+    sessions = _fake_sessions(infos={"public": select(_BEST, HLS_ONLY_1080)})
+    with patch.object(DownloadManager, "_output_video_height", return_value=720):
+        _work(download_manager, sample_item, sessions)
+    assert (
+        "Quality warning: Test Video was delivered at 720p but 1080p was selected"
+        in _logged(mock_callback)
+    )
+
+
+@pytest.mark.parametrize("on_disk", [1080, 0])  # matches, or couldn't be read
+def test_worker_does_not_warn_unless_file_is_below_selection(
+    download_manager, sample_item, mock_callback, on_disk
+):
+    sessions = _fake_sessions(infos={"public": select(_BEST, HLS_ONLY_1080)})
+    with patch.object(DownloadManager, "_output_video_height", return_value=on_disk):
+        _work(download_manager, sample_item, sessions)
+    assert not [m for m in _logged(mock_callback) if m.startswith("Quality warning")]
+
+
+def test_worker_skips_delivered_check_in_audio_only_mode(download_manager, sample_item):
+    download_manager.config.download.audio_only = True
+    sessions = _fake_sessions(infos={"public": select(_BEST, HLS_ONLY_1080)})
+    with patch.object(DownloadManager, "_output_video_height") as probe:
+        _work(download_manager, sample_item, sessions)
+    probe.assert_not_called()
+
+
+def test_worker_audio_only_ranks_modes_by_audio_bitrate(download_manager, sample_item):
+    download_manager.config.download.audio_only = True
+    download_manager.config.download.cookies_from_browser = "firefox"
+    spec = "bestaudio/best"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(
+                spec, [fmt("140", "m4a", None, "none", "mp4a.40.2", tbr=129)]
+            ),
+            "public": select(spec, [fmt("251", "webm", None, "none", "opus", tbr=160)]),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+    assert record["opts"]["public"]["postprocessors"][0]["key"] == "FFmpegExtractAudio"
+
+
+def test_worker_closes_every_probe_session_on_success(download_manager, sample_item):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    download_manager.config.download.cookies_file = "/tmp/cookies.txt"
+    sessions = _fake_sessions(
+        infos={
+            mode: select(_BEST, ADAPTIVE_4K) for mode in ("browser", "public", "file")
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert sorted(record["closed"]) == ["browser", "file", "public"]
+
+
+def test_worker_closes_every_probe_session_on_failure(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={"browser": select(_BEST, ADAPTIVE_4K)},
+        extract_errors={"public": DownloadError("boom")},
+        download_errors={"browser": DownloadError("boom")},
+    )
+    with pytest.raises(Exception, match="yt-dlp error"):
+        _work(download_manager, sample_item, sessions)
+    assert sorted(sessions.record["closed"]) == ["browser", "public"]
+
+
+def test_worker_never_passes_dead_user_agent_option(download_manager, sample_item):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    download_manager.config.download.cookies_file = "/tmp/cookies.txt"
+    record = _work(download_manager, sample_item, _fake_sessions())
+    assert set(record["opts"]) == {"browser", "public", "file"}
+    assert all("user_agent" not in opts for opts in record["opts"].values())
+
+
+def test_worker_probes_without_resolving_playlist_entries(
+    download_manager, sample_item
+):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    record = _work(download_manager, sample_item, _fake_sessions())
+    assert [o["extract_flat"] for o in record["all_opts"]] == ["in_playlist"] * 2
+
+
+def test_worker_downloads_playlist_lazily_through_best_mode(
+    download_manager, sample_item
+):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    playlist = {"_type": "playlist", "title": "Mix", "entries": []}
+    sessions = _fake_sessions(
+        infos={"browser": playlist, "public": playlist},
+        download_errors={"browser": DownloadError("entry 3 failed")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == []  # never via the probe's info dict
+    [(mode, urls, opts)] = record["url_downloads"]
+    assert (mode, urls) == ("public", [sample_item.url])
+    assert "extract_flat" not in opts
+
+
+def test_worker_audio_only_prefers_audio_stream_over_combined_video_fallback(
+    download_manager, sample_item
+):
+    # Signed-in HLS has no audio-only formats, so its /best fallback is 1080p
+    # video; that must not beat a real audio stream.
+    download_manager.config.download.audio_only = True
+    download_manager.config.download.cookies_from_browser = "firefox"
+    spec = "bestaudio/best"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(spec, HLS_ONLY_1080),
+            "public": select(spec, [fmt("251", "webm", None, "none", "opus", tbr=135)]),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+
+
+def test_worker_prefers_mode_that_sees_the_playlist_over_single_video(
+    download_manager, sample_item
+):
+    # e.g. watch?v=X&list=WL: signed out can't see the private list and falls
+    # back to the single video.
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": {"_type": "playlist", "title": "Watch later", "entries": []},
+            "public": select(_BEST, ADAPTIVE_4K),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert [m for m, _, _ in record["url_downloads"]] == ["browser"]
+    assert record["downloaded"] == []
+
+
+def test_worker_treats_empty_extraction_as_mode_failure(download_manager, sample_item):
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={"browser": None, "public": select(_BEST, ADAPTIVE_4K)}
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+
+    download_manager.config.download.cookies_from_browser = None
+    with pytest.raises(Exception, match="returned no video information"):
+        _work(download_manager, sample_item, _fake_sessions(infos={"public": None}))
+
+
+def test_worker_fallback_extracts_again_for_fresh_urls(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        },
+        download_errors={"public": DownloadError("HTTP Error 403: Forbidden")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["extract_calls"][-1] == ("browser", True)
+
+
+def test_worker_resets_attempt_state_before_fallback(download_manager, sample_item):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": {"title": "Test Video"},  # no height: leaves resolution unset
+            "public": select(_BEST, ADAPTIVE_4K),
+        },
+        download_errors={"public": DownloadError("HTTP Error 403: Forbidden")},
+    )
+    sample_item.already_exists = True
+    sample_item.resolution = "4K"
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
+    assert sample_item.already_exists is False
+    assert sample_item.resolution == ""
+
+
+def test_worker_close_error_does_not_fail_finished_download(
     download_manager, sample_item, mock_callback
 ):
     from yt_dlp.utils import DownloadError
 
     download_manager.config.download.cookies_file = "/tmp/cookies.txt"
-    call_count = [0]
+    sessions = _fake_sessions(
+        infos={"public": select(_BEST, ADAPTIVE_4K)},
+        close_errors={"file": DownloadError("cookies.txt is not a Netscape file")},
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+    assert sorted(record["closed"]) == ["file", "public"]
+    assert any(
+        m.startswith("Could not close a yt-dlp session cleanly")
+        for m in _logged(mock_callback)
+    )
+
+
+def test_worker_cancelled_before_probing_contacts_nothing(
+    download_manager, sample_item
+):
+    sample_item.status = DownloadStatus.CANCELLED
+    record = _work(download_manager, sample_item, _fake_sessions())
+    assert record["all_opts"] == []
+
+
+def test_worker_stopped_during_probing_downloads_nothing(download_manager, sample_item):
+    sessions = _fake_sessions(infos={"public": select(_BEST, ADAPTIVE_4K)})
+
+    def stop_then_probe(opts):
+        session = sessions(opts)
+        download_manager._stop_event.set()
+        return session
+
+    stop_then_probe.record = sessions.record
+    record = _work(download_manager, sample_item, stop_then_probe)
+    assert record["extract_calls"] == [("public", False)]
+    assert record["downloaded"] == []
+
+
+def test_worker_cancelled_between_attempts_stops_falling_back(
+    download_manager, sample_item
+):
+    from yt_dlp.utils import DownloadError
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+
+    class CancelOnFailure(DownloadError):
+        def __init__(self, msg):
+            super().__init__(msg)
+            sample_item.status = DownloadStatus.CANCELLED
+
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, HLS_ONLY_1080),
+            "public": select(_BEST, ADAPTIVE_4K),
+        },
+    )
+    sessions_record = sessions.record
 
     def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            # Strategy B fails with auth error
-            instance.download = MagicMock(side_effect=DownloadError("sign in to watch"))
-        else:
-            # Strategy C succeeds
-            instance.download = MagicMock()
-        return instance
+        session = sessions(opts)
+        if _mode_of(opts) == "public":
 
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        download_manager._download_worker(sample_item)
+            def fail(info, download=True):
+                raise CancelOnFailure("cancelled mid-download")
 
-    mock_callback.assert_any_call(
-        "log_message", {"message": "Auth required - retrying with cookie file..."}
+            session.process_ie_result = fail
+        return session
+
+    factory.record = sessions_record
+    record = _work(download_manager, sample_item, factory)
+    assert record["downloaded"] == []
+
+
+def test_probe_logger_names_mode_only_when_several_modes(download_manager, sample_item):
+    from flowsnip.download_manager import _ModeLogger
+
+    record = _work(download_manager, sample_item, _fake_sessions())
+    assert not isinstance(record["opts"]["public"]["logger"], _ModeLogger)
+
+    download_manager.config.download.cookies_from_browser = "firefox"
+    record = _work(download_manager, sample_item, _fake_sessions())
+    assert isinstance(record["opts"]["public"]["logger"], _ModeLogger)
+
+
+def test_mode_logger_prefixes_errors_and_passes_other_levels_through():
+    from flowsnip.download_manager import _ModeLogger
+
+    inner = MagicMock()
+    logger = _ModeLogger(inner, "signed out")
+    logger.error("ERROR: [youtube] x: Sign in to confirm your age")
+    logger.debug("d")
+    logger.info("i")
+    logger.warning("w")
+    inner.error.assert_called_once_with(
+        "[signed out] [youtube] x: Sign in to confirm your age"
     )
-    download_manager.config.download.cookies_file = None
+    inner.debug.assert_called_once_with("d")
+    inner.info.assert_called_once_with("i")
+    inner.warning.assert_called_once_with("w")
+
+
+def test_reprocessing_probe_info_downloads_exactly_the_probed_formats():
+    # Guards the yt-dlp API assumption behind reusing a probe: running a
+    # download=False result through process_ie_result(download=True) must pick
+    # the same formats rather than re-selecting differently.
+    from yt_dlp import YoutubeDL
+
+    downloaded = []
+
+    class RecordingYoutubeDL(YoutubeDL):
+        def process_info(self, info_dict):
+            downloaded.append(info_dict["format_id"])
+
+    for formats, expected in ((ADAPTIVE_4K, "401+251"), (HLS_ONLY_1080, "96")):
+        probed = select(_BEST, formats)
+        downloaded.clear()
+        with RecordingYoutubeDL({"format": _BEST, "quiet": True}) as ydl:
+            ydl.process_ie_result(probed, download=True)
+        assert downloaded == [expected]
+
+
+def test_worker_no_callback_survives_cookie_db_error_and_fallback(
+    test_config, sample_item
+):
+    from yt_dlp.utils import DownloadError
+
+    test_config.download.cookies_from_browser = "chrome"
+    mgr = DownloadManager(test_config)  # no callback
+    sessions = _fake_sessions(
+        infos={
+            "public": select(_BEST, ADAPTIVE_4K),
+            "browser": select(_BEST, HLS_ONLY_1080),
+        },
+        extract_errors={"browser": Exception("database is locked")},
+        download_errors={"public": DownloadError("403")},
+    )
+    with pytest.raises(Exception, match="yt-dlp error"):
+        _work(mgr, sample_item, sessions)
+    mgr.stop_downloads()
+
+
+# ---------------------------------------------------------------------------
+# _output_video_height (ffprobe on the finished file)
+# ---------------------------------------------------------------------------
+
+
+def _downloads(*paths):
+    return {"requested_downloads": [{"filepath": str(p)} for p in paths]}
+
+
+def test_output_video_height_is_unknown_without_a_finished_file(tmp_path):
+    assert DownloadManager._output_video_height(MagicMock(), None) == 0
+    missing = _downloads(tmp_path / "missing.webm")
+    assert DownloadManager._output_video_height(MagicMock(), missing) == 0
+
+
+def test_output_video_height_reads_video_streams_and_skips_cover_art(tmp_path):
+    path = tmp_path / "video.mkv"
+    path.write_text("")
+    metadata = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "width": 3840,
+                "height": 2160,
+                "disposition": {"attached_pic": 1},
+            },
+            {"codec_type": "video", "width": 1920, "height": 1012},
+            {"codec_type": "audio"},
+        ]
+    }
+    with patch("yt_dlp.postprocessor.FFmpegPostProcessor") as ffprobe:
+        ffprobe.return_value.probe_available = True
+        ffprobe.return_value.get_metadata_object.return_value = metadata
+        height = DownloadManager._output_video_height(MagicMock(), _downloads(path))
+    assert height == 1080
+
+
+def test_output_video_height_is_unknown_when_ffprobe_is_missing_or_fails(tmp_path):
+    path = tmp_path / "video.mkv"
+    path.write_text("")
+    with patch("yt_dlp.postprocessor.FFmpegPostProcessor") as ffprobe:
+        ffprobe.return_value.probe_available = False
+        assert DownloadManager._output_video_height(MagicMock(), _downloads(path)) == 0
+    with patch("yt_dlp.postprocessor.FFmpegPostProcessor") as ffprobe:
+        ffprobe.return_value.probe_available = True
+        ffprobe.return_value.get_metadata_object.side_effect = Exception("bad file")
+        assert DownloadManager._output_video_height(MagicMock(), _downloads(path)) == 0
+
+
+@pytest.mark.skipif(
+    not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="needs ffmpeg"
+)
+def test_output_video_height_probes_a_real_file(tmp_path):
+    from yt_dlp import YoutubeDL
+
+    path = tmp_path / "clip.mkv"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=1920x1012:d=0.2",
+            "-c:v",
+            "ffv1",
+            str(path),
+        ],
+        check=True,
+    )
+    with YoutubeDL({"quiet": True}) as ydl:
+        assert DownloadManager._output_video_height(ydl, _downloads(path)) == 1080
+
+
+# ---------------------------------------------------------------------------
+# bundled ffmpeg (frozen builds)
+# ---------------------------------------------------------------------------
+
+
+def _base_opts(manager, item):
+    return manager._build_base_opts(
+        item, manager._make_progress_hook(item), manager._make_ydl_logger(item)
+    )
+
+
+def test_frozen_build_points_ytdlp_at_bundled_ffmpeg(
+    download_manager, sample_item, tmp_path, monkeypatch
+):
+    (tmp_path / "ffmpeg").write_text("")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+    assert _base_opts(download_manager, sample_item)["ffmpeg_location"] == str(tmp_path)
+
+
+def test_frozen_build_falls_back_to_executable_dir_for_ffmpeg(
+    download_manager, sample_item, tmp_path, monkeypatch
+):
+    exe_dir = tmp_path / "app"
+    exe_dir.mkdir()
+    (exe_dir / "ffmpeg.exe").write_text("")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path / "internal"), raising=False)
+    monkeypatch.setattr("sys.executable", str(exe_dir / "FlowSnip.exe"))
+    assert _base_opts(download_manager, sample_item)["ffmpeg_location"] == str(exe_dir)
+
+
+def test_frozen_build_without_bundled_ffmpeg_leaves_location_unset(
+    download_manager, sample_item, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr("sys.executable", str(tmp_path / "FlowSnip"))
+    assert "ffmpeg_location" not in _base_opts(download_manager, sample_item)
+
+
+def test_build_base_opts_without_js_runtime_omits_js_runtimes(
+    download_manager, sample_item
+):
+    with patch("flowsnip.download_manager._get_js_runtime", return_value=None):
+        opts = _base_opts(download_manager, sample_item)
+    assert "js_runtimes" not in opts
+
+
+def test_source_run_leaves_ffmpeg_location_unset(download_manager, sample_item):
+    assert "ffmpeg_location" not in _base_opts(download_manager, sample_item)
 
 
 # ---------------------------------------------------------------------------
@@ -1231,7 +1828,7 @@ def test_process_completed_trims_completed_history(download_manager):
 @pytest.mark.parametrize(
     "height, expected",
     [
-        (4320, "4K"),
+        (4320, "8K"),
         (2160, "4K"),
         (1440, "1440p"),
         (1080, "1080p"),
@@ -1244,6 +1841,21 @@ def test_process_completed_trims_completed_history(download_manager):
 )
 def test_height_to_label(height, expected):
     assert _height_to_label(height) == expected
+
+
+@pytest.mark.parametrize(
+    "width, height, expected",
+    [
+        (1920, 1012, "1080p"),  # cinemascope crop of a 1080p frame
+        (3840, 1600, "4K"),
+        (1080, 1920, "1080p"),  # portrait
+        (7680, 4320, "8K"),
+        (1440, 1080, "1080p"),  # 4:3
+        (1280, 720, "720p"),
+    ],
+)
+def test_height_to_label_uses_frame_size(width, height, expected):
+    assert _height_to_label(height, width) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1261,6 +1873,18 @@ def test_progress_hook_finished_sets_resolution(download_manager, sample_item):
                 "info_dict": {"height": 1080},
             }
         )
+    assert sample_item.resolution == "1080p"
+
+
+def test_progress_hook_finished_labels_by_frame_size(download_manager, sample_item):
+    hook = download_manager._make_progress_hook(sample_item)
+    hook(
+        {
+            "status": "finished",
+            "filename": "/tmp/test.mkv",
+            "info_dict": {"height": 1012, "width": 1920},
+        }
+    )
     assert sample_item.resolution == "1080p"
 
 
@@ -1501,52 +2125,6 @@ def test_build_base_opts_add_metadata_disabled(download_manager, sample_item):
     opts = download_manager._build_base_opts(sample_item, progress_hook, log_obj)
     assert "addmetadata" not in opts
     download_manager.config.ytdl.add_metadata = True
-
-
-def test_worker_strategy_a_db_error_no_callback(test_config, sample_item):
-    test_config.download.cookies_from_browser = "chrome"
-    mgr = DownloadManager(test_config)  # no callback
-    call_count = [0]
-
-    def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            instance.download = MagicMock(
-                side_effect=Exception("could not copy database")
-            )
-        else:
-            instance.download = MagicMock()
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        mgr._download_worker(sample_item)
-    test_config.download.cookies_from_browser = None
-    mgr.stop_downloads()
-
-
-def test_worker_strategy_c_no_callback(test_config, sample_item):
-    test_config.download.cookies_file = "/tmp/cookies.txt"
-    mgr = DownloadManager(test_config)  # no callback
-    call_count = [0]
-
-    def factory(opts):
-        call_count[0] += 1
-        instance = MagicMock()
-        instance.__enter__ = lambda s: instance
-        instance.__exit__ = MagicMock(return_value=False)
-        if call_count[0] == 1:
-            instance.download = MagicMock(side_effect=Exception("sign in to confirm"))
-        else:
-            instance.download = MagicMock()
-        return instance
-
-    with patch("yt_dlp.YoutubeDL", side_effect=factory):
-        mgr._download_worker(sample_item)
-    test_config.download.cookies_file = None
-    mgr.stop_downloads()
 
 
 def test_del_no_executor(test_config):
