@@ -8,8 +8,17 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ytdlp_formats import ADAPTIVE_4K, HLS_ONLY_1080, fmt, select
+from ytdlp_formats import (
+    ADAPTIVE_4K,
+    AUDIO_TRACKS,
+    HFR_1080,
+    HLS_ONLY_1080,
+    PREMIUM_1080,
+    fmt,
+    select,
+)
 
+from flowsnip.config import VIDEO_FORMAT_SORT
 from flowsnip.download_manager import (
     _UNSET,
     MAX_HISTORY,
@@ -642,6 +651,65 @@ def test_worker_prefers_signed_in_when_it_offers_higher_resolution(
     assert record["downloaded"] == ["browser"]
 
 
+def test_worker_prefers_direct_streams_over_hls_peak_bitrate_at_same_resolution(
+    download_manager, sample_item
+):
+    # Signed-in HLS-only 1080p50 lists a 4.6 Mbps peak; signed-out DASH H.264
+    # is a real 2.7 Mbps average. Peak figures must not win the comparison.
+    hls_peak = fmt(
+        "96",
+        "mp4",
+        1080,
+        "avc1.640028",
+        "mp4a.40.2",
+        tbr=4600,
+        fps=50,
+        protocol="m3u8_native",
+    )
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": {"title": "Test Video", **hls_peak},
+            "public": select(_BEST, HFR_1080, VIDEO_FORMAT_SORT),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+
+
+def test_worker_prefers_signed_in_premium_stream_over_signed_out_dash(
+    download_manager, sample_item
+):
+    # Premium's enhanced-bitrate 1080p is HLS-only; it must still beat DASH.
+    download_manager.config.download.cookies_from_browser = "firefox"
+    regular = [f for f in PREMIUM_1080 if f["format_id"] != "616"]
+    sessions = _fake_sessions(
+        infos={
+            "browser": select(_BEST, PREMIUM_1080, VIDEO_FORMAT_SORT),
+            "public": select(_BEST, regular, VIDEO_FORMAT_SORT),
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["browser"]
+
+
+def test_worker_prefers_higher_bitrate_mode_at_same_resolution(
+    download_manager, sample_item
+):
+    av1_3mbps = fmt("401", "mp4", 2160, "av01.0.12M.08", tbr=2952, fps=25)
+    vp9_9mbps = fmt("313", "webm", 2160, "vp9", tbr=8763, fps=25)
+    aac = AUDIO_TRACKS[0]
+    download_manager.config.download.cookies_from_browser = "firefox"
+    sessions = _fake_sessions(
+        infos={
+            "browser": {"title": "Test Video", "requested_formats": [av1_3mbps, aac]},
+            "public": {"title": "Test Video", "requested_formats": [vp9_9mbps, aac]},
+        }
+    )
+    record = _work(download_manager, sample_item, sessions)
+    assert record["downloaded"] == ["public"]
+
+
 def test_worker_keeps_signed_in_on_equal_rank_without_quality_log(
     download_manager, sample_item, mock_callback
 ):
@@ -1265,6 +1333,35 @@ def test_frozen_build_without_bundled_ffmpeg_leaves_location_unset(
     monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
     monkeypatch.setattr("sys.executable", str(tmp_path / "FlowSnip"))
     assert "ffmpeg_location" not in _base_opts(download_manager, sample_item)
+
+
+def test_video_downloads_sort_by_resolution_then_bitrate_and_save_mp4(
+    download_manager, sample_item
+):
+    opts = _base_opts(download_manager, sample_item)
+    assert opts["format_sort"] == list(VIDEO_FORMAT_SORT)
+    assert opts["merge_output_format"] == "mp4"
+
+
+def test_custom_format_strings_keep_yt_dlp_default_sort_and_container(
+    download_manager, sample_item
+):
+    download_manager.config.download.video_quality = (
+        "bestvideo[ext=webm]+bestaudio[ext=webm]"
+    )
+    opts = _base_opts(download_manager, sample_item)
+    assert opts["format"] == "bestvideo[ext=webm]+bestaudio[ext=webm]"
+    assert "format_sort" not in opts
+    assert "merge_output_format" not in opts
+
+
+def test_audio_only_downloads_keep_yt_dlp_default_sort_and_container(
+    download_manager, sample_item
+):
+    download_manager.config.download.audio_only = True
+    opts = _base_opts(download_manager, sample_item)
+    assert "format_sort" not in opts
+    assert "merge_output_format" not in opts
 
 
 def test_build_base_opts_without_js_runtime_omits_js_runtimes(
