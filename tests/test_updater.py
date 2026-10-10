@@ -74,6 +74,11 @@ def test_is_newer_false_older():
     assert updater._is_newer("v1.0.0", "v1.1.0") is False
 
 
+def test_is_newer_false_when_current_version_is_unknown():
+    # A build that can't read its own version must not nag about every release.
+    assert updater._is_newer("v9.9.9", "unknown") is False
+
+
 def test_is_newer_none_triggers_except():
     # None.lstrip raises AttributeError - caught by the except clause
     assert updater._is_newer(None, "1.0.0") is False

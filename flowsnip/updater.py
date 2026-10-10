@@ -52,7 +52,9 @@ def _is_newer(latest: str, current: str) -> bool:
         return tuple(int(x) for x in v.lstrip("v").split(".") if x.isdigit())
 
     try:
-        return _parts(latest) > _parts(current)
+        # A build that can't read its own version ("unknown") has nothing to
+        # compare, so it never reports an update.
+        return bool(_parts(current)) and _parts(latest) > _parts(current)
     except Exception:
         return False
 

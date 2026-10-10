@@ -15,6 +15,8 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from . import __version__
+from .about import AboutDialog
 from .config import VIDEO_QUALITY_PRESETS, Config, video_quality_display_name
 from .download_manager import DownloadItem, DownloadManager, DownloadStatus
 
@@ -23,6 +25,12 @@ def _resource_path(relative: str) -> Path:
     """Return absolute path to a bundled asset (works in dev and PyInstaller)."""
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
     return base / relative
+
+
+def _window_title(suffix: str) -> str:
+    """Window title with the app version, e.g. "FlowSnip v0.1.5 - 2 downloading"."""
+    name = "FlowSnip" if __version__ == "unknown" else f"FlowSnip v{__version__}"
+    return f"{name} - {suffix}"
 
 
 class ProgressFrame(ctk.CTkFrame):
@@ -408,6 +416,19 @@ class ConfigFrame(ctk.CTkFrame):
         )
         load_button.pack(side="right", padx=5)
 
+        about_button = ctk.CTkButton(
+            button_frame, text="About", width=70, command=self.show_about
+        )
+        about_button.pack(expand=True)
+
+    def show_about(self):
+        """Open the About dialog on top of the main window."""
+        existing = getattr(self, "_about_dialog", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+        self._about_dialog = AboutDialog(self.winfo_toplevel())
+
     def on_audio_only_toggle(self):
         self.update_audio_only()
         # Disable/enable video quality combobox
@@ -588,7 +609,7 @@ class FlowSnipGUI:
         ctk.set_default_color_theme("blue")
 
         self.root = ctk.CTk()
-        self.root.title("FlowSnip - Media Downloader")
+        self.root.title(_window_title("Media Downloader"))
         self.root.geometry(
             f"{self.config.ui.window_width}x{self.config.ui.window_height}"
         )
@@ -1064,9 +1085,9 @@ class FlowSnipGUI:
 
         active_count = status["active_count"]
         if active_count > 0:
-            self.root.title(f"FlowSnip - {active_count} downloading")
+            self.root.title(_window_title(f"{active_count} downloading"))
         else:
-            self.root.title("FlowSnip - Media Downloader")
+            self.root.title(_window_title("Media Downloader"))
 
     def update_stats(self):
         """Update statistics display."""

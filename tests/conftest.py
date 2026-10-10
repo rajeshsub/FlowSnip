@@ -108,6 +108,9 @@ def _inject_gui_stubs():
         def resizable(self, *a, **kw):
             pass
 
+        def transient(self, *a):
+            pass
+
     class CTkFrame(_Base):
         pass
 
@@ -185,6 +188,7 @@ def _inject_gui_stubs():
     tk_stub = types.ModuleType("tkinter")
     filedialog_stub = types.ModuleType("tkinter.filedialog")
     messagebox_stub = types.ModuleType("tkinter.messagebox")
+    tk_stub.TclError = type("TclError", (Exception,), {})
     tk_stub.filedialog = filedialog_stub
     tk_stub.messagebox = messagebox_stub
     filedialog_stub.askdirectory = MagicMock(return_value="")

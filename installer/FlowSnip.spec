@@ -12,6 +12,8 @@ import platform
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import copy_metadata
+
 ROOT = Path(SPECPATH).parent  # repo root
 ASSETS = ROOT / "assets"
 
@@ -31,6 +33,11 @@ datas = [
     (str(ASSETS / "icon.icns"), "assets"),
     (str(ASSETS / "screenshot.png"), "assets"),
 ]
+
+# flowsnip.__version__ is read from the installed package metadata at runtime
+# (title bar, About box, update check). Without this the frozen app cannot see
+# its own version and reports "unknown".
+datas += copy_metadata("flowsnip")
 
 # Add ffmpeg binaries if present (downloaded by CI workflow)
 for _bin in _FFMPEG_BINS.get(_os, []):
