@@ -21,6 +21,7 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ### Core Functionality
 - **Modern GUI** - Beautiful CustomTkinter interface with dark/light themes
+- **Version and About** - The title bar shows the running version (e.g. `FlowSnip v0.1.3`), and the **About** button in the settings panel shows the FlowSnip and yt-dlp versions with a link to the GitHub project
 - **Download Manager** - Complete parallel download engine with queue management
 - **Configuration System** - Full Pydantic-based config with CLI overrides
 - **Real-time Progress** - Live progress tracking with speed, ETA, and status

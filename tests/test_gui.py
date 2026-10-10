@@ -1233,8 +1233,9 @@ def test_update_status_display_active():
         "completed_count": 0,
         "failed_count": 0,
     }
-    g.update_status_display()
-    g.root.title.assert_called_with("FlowSnip - 2 downloading")
+    with patch("flowsnip.gui.__version__", "1.2.3"):
+        g.update_status_display()
+    g.root.title.assert_called_with("FlowSnip v1.2.3 - 2 downloading")
 
 
 def test_update_status_display_idle():
@@ -1245,8 +1246,63 @@ def test_update_status_display_idle():
         "completed_count": 0,
         "failed_count": 0,
     }
-    g.update_status_display()
-    g.root.title.assert_called_with("FlowSnip - Media Downloader")
+    with patch("flowsnip.gui.__version__", "1.2.3"):
+        g.update_status_display()
+    g.root.title.assert_called_with("FlowSnip v1.2.3 - Media Downloader")
+
+
+def test_update_status_display_omits_unknown_version():
+    g = _make_gui()
+    g.download_manager.get_queue_status.return_value = {
+        "active_count": 1,
+        "pending_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+    }
+    with patch("flowsnip.gui.__version__", "unknown"):
+        g.update_status_display()
+    g.root.title.assert_called_with("FlowSnip - 1 downloading")
+
+
+def test_setup_window_title_shows_version():
+    g = _make_gui()
+    with (
+        patch("flowsnip.gui.__version__", "1.2.3"),
+        patch.object(g, "_set_window_icon"),
+        patch("flowsnip.gui.ctk.CTk") as window,
+    ):
+        g.setup_window()
+    window.return_value.title.assert_called_once_with(
+        "FlowSnip v1.2.3 - Media Downloader"
+    )
+
+
+def test_config_frame_about_opens_dialog_on_the_main_window():
+    cf = _make_config_frame()
+    cf.winfo_toplevel = MagicMock()
+    with patch("flowsnip.gui.AboutDialog") as dialog:
+        cf.show_about()
+    dialog.assert_called_once_with(cf.winfo_toplevel.return_value)
+
+
+def test_config_frame_about_reuses_an_open_dialog():
+    cf = _make_config_frame()
+    cf.winfo_toplevel = MagicMock()
+    with patch("flowsnip.gui.AboutDialog") as dialog:
+        cf.show_about()
+        cf.show_about()
+    dialog.assert_called_once()
+    dialog.return_value.lift.assert_called_once()
+
+
+def test_config_frame_about_reopens_after_the_dialog_was_closed():
+    cf = _make_config_frame()
+    cf.winfo_toplevel = MagicMock()
+    with patch("flowsnip.gui.AboutDialog") as dialog:
+        cf.show_about()
+        dialog.return_value.winfo_exists.return_value = False
+        cf.show_about()
+    assert dialog.call_count == 2
 
 
 # ---------------------------------------------------------------------------
