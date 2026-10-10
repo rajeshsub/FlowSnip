@@ -34,6 +34,17 @@ jobs:
         run: |
           VERSION=$(python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      # Installers are named from pyproject.toml, not the tag, so a tag that
+      # disagrees with it would publish a release under the wrong version.
+      - name: Tag must match the pyproject.toml version
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match pyproject.toml version $VERSION"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Windows build → NSIS installer
