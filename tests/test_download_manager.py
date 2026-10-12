@@ -1377,6 +1377,95 @@ def test_source_run_leaves_ffmpeg_location_unset(download_manager, sample_item):
 
 
 # ---------------------------------------------------------------------------
+# PO token server (ADR 0004)
+# ---------------------------------------------------------------------------
+
+POT_URL = "http://127.0.0.1:48123"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.youtube.com/",
+        "https://youtu.be/",
+        "https://music.youtube.com/",
+        "https://www.youtube-nocookie.com/",
+    ],
+)
+def test_youtube_downloads_get_the_po_token_server(
+    download_manager, pot_server_stub, url
+):
+    pot_server_stub.base_url.return_value = POT_URL
+    opts = _base_opts(download_manager, DownloadItem(url=url, title="t"))
+    assert opts["extractor_args"] == {"youtubepot-bgutilhttp": {"base_url": [POT_URL]}}
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://vimeo.com/",
+        "https://notyoutube.com/",
+        "https://youtube.com.evil.example/",
+    ],
+)
+def test_other_sites_never_start_the_po_token_server(
+    download_manager, pot_server_stub, url
+):
+    opts = _base_opts(download_manager, DownloadItem(url=url, title="t"))
+    pot_server_stub.base_url.assert_not_called()
+    assert "extractor_args" not in opts
+
+
+def test_without_po_token_server_download_options_are_unchanged(
+    download_manager, pot_server_stub, sample_item
+):
+    opts = _base_opts(download_manager, sample_item)
+    pot_server_stub.base_url.assert_called_once()
+    assert "extractor_args" not in opts
+
+
+def test_missing_po_token_server_is_logged_once_per_session(
+    download_manager, mock_callback, sample_item
+):
+    _base_opts(download_manager, sample_item)
+    _base_opts(download_manager, DownloadItem(url=sample_item.url, title="again"))
+    hints = [
+        c.args[1]["message"]
+        for c in mock_callback.call_args_list
+        if c.args[0] == "log_message" and "PO token" in c.args[1]["message"]
+    ]
+    assert len(hints) == 1
+    assert "Node.js 22 or newer was not found" in hints[0]
+
+
+def test_close_stops_the_po_token_server(download_manager, pot_server_stub):
+    download_manager.close()
+    pot_server_stub.stop.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "runtime, expected",
+    [
+        ({"node": {"path": "/usr/bin/node"}}, "/usr/bin/node"),
+        ({"deno": {"path": "/usr/bin/deno"}}, None),
+        (None, None),
+    ],
+)
+def test_po_token_server_runs_on_node_only(runtime, expected):
+    from flowsnip.download_manager import _node_path
+
+    with patch("flowsnip.download_manager._get_js_runtime", return_value=runtime):
+        assert _node_path() == expected
+
+
+def test_manager_builds_its_po_token_server_from_detected_node(test_config):
+    import flowsnip.download_manager as dm
+
+    DownloadManager(test_config)
+    dm.PotServer.assert_called_once_with(dm._node_path)
+
+
+# ---------------------------------------------------------------------------
 # _download_worker - audio-only and ytdl option flags
 # ---------------------------------------------------------------------------
 

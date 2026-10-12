@@ -80,6 +80,15 @@ jobs:
           Copy-Item ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe ffmpeg_bin\
           Copy-Item ffmpeg_extracted\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe ffmpeg_bin\
 
+      # PO token server (ADR 0004): built per OS, since its canvas dependency
+      # is a native addon. The spec fails the build if it is missing.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Build PO token server
+        run: uv run python installer/build_pot_server.py --audit
+
       - name: Generate icon files
         run: uv run python installer/pre_build.py
 
@@ -173,6 +182,15 @@ jobs:
           unzip -o ffprobe.zip -d ffmpeg_bin
           chmod +x ffmpeg_bin/ffmpeg ffmpeg_bin/ffprobe
 
+      # PO token server (ADR 0004): built per OS, since its canvas dependency
+      # is a native addon. The spec fails the build if it is missing.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Build PO token server
+        run: uv run python installer/build_pot_server.py --audit
+
       - name: Generate icon files
         run: uv run python installer/pre_build.py
 
@@ -226,6 +244,15 @@ jobs:
           mkdir -p ffmpeg_bin
           tar -xf ffmpeg.tar.xz --strip-components=1 -C ffmpeg_bin --wildcards "*/ffmpeg" "*/ffprobe"
           chmod +x ffmpeg_bin/ffmpeg ffmpeg_bin/ffprobe
+
+      # PO token server (ADR 0004): built per OS, since its canvas dependency
+      # is a native addon. The spec fails the build if it is missing.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Build PO token server
+        run: uv run python installer/build_pot_server.py --audit
 
       - name: Generate icon files
         run: uv run python installer/pre_build.py

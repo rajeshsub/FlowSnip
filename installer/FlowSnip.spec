@@ -45,6 +45,22 @@ for _bin in _FFMPEG_BINS.get(_os, []):
     if _bin_path.exists():
         datas.append((str(_bin_path), "."))
 
+# PO token provider (ADR 0004). The server is built for this OS by
+# installer/build_pot_server.py. Without it, signed-in-only YouTube videos
+# would silently download at 360p, so a missing build fails here.
+_POT_SERVER = ROOT / "vendor" / "bgutil-server"
+if not (_POT_SERVER / "build" / "main.js").is_file():
+    raise SystemExit(
+        "vendor/bgutil-server is missing: run python installer/build_pot_server.py"
+    )
+datas.append((str(_POT_SERVER), "bgutil-server"))
+
+# yt-dlp finds plugins as source files under yt_dlp_plugins/ in sys.path
+# directories; it does not look inside PyInstaller's archive.
+for _file in importlib.metadata.distribution("bgutil-ytdlp-pot-provider").files:
+    if _file.parts[0] == "yt_dlp_plugins" and _file.suffix == ".py":
+        datas.append((str(_file.locate()), str(Path(*_file.parts[:-1]))))
+
 block_cipher = None
 
 a = Analysis(

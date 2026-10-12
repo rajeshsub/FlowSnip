@@ -1126,6 +1126,7 @@ class FlowSnipGUI:
                 self.download_manager.cancel_download(download_id)
 
             self.download_manager.executor.shutdown(wait=False)
+            self.download_manager.close()
 
             geometry = self.root.geometry()
             if geometry and isinstance(geometry, str) and "x" in geometry:

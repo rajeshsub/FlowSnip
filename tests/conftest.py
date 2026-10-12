@@ -222,6 +222,22 @@ def real_home():
 
 
 @pytest.fixture(autouse=True)
+def pot_server_stub(monkeypatch):
+    """Stand-in for the PO token server, so no test launches Node.
+
+    Unavailable by default; a test sets ``base_url.return_value`` to simulate a
+    running server.
+    """
+    server = MagicMock()
+    server.base_url.return_value = None
+    server.unavailable_reason = "Node.js 22 or newer was not found"
+    monkeypatch.setattr(
+        "flowsnip.download_manager.PotServer", MagicMock(return_value=server)
+    )
+    return server
+
+
+@pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
     """Point HOME at a temp dir so no test can read or overwrite the real config."""
     home = tmp_path / "home"

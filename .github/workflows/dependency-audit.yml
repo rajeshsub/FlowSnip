@@ -9,7 +9,7 @@ on:
 
 jobs:
   audit:
-    name: pip-audit (scheduled)
+    name: pip-audit + npm audit (scheduled)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -26,3 +26,13 @@ jobs:
 
       - name: Audit dependencies (pip-audit)
         run: uv run pip-audit
+
+      # The PO token server's npm dependencies (ADR 0004) are pinned by the
+      # upstream package-lock.json at the commit installer/build_pot_server.py
+      # pins, so they are audited by building it.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Audit PO token server dependencies (npm audit)
+        run: uv run python installer/build_pot_server.py --audit

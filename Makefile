@@ -46,6 +46,13 @@ bootstrap:
 	@echo "🔗 Installing pre-commit hooks..."
 	@uv run pre-commit install
 	@echo "✓ Pre-commit hooks installed"
+	@if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then \
+		echo "🔑 Building the YouTube PO token server..."; \
+		uv run python installer/build_pot_server.py && echo "✓ PO token server built"; \
+	else \
+		echo "⚠  Node.js 22+ and npm not found on PATH: skipping the PO token server."; \
+		echo "   Signed-in-only YouTube videos will download below their best quality."; \
+	fi
 	@echo "✅ Bootstrap complete! Your environment is ready."
 	@command -v node >/dev/null 2>&1 || \
 		echo "⚠  Node.js not found on PATH. Set FLOWSNIP_NODE_PATH=/path/to/node if needed for yt-dlp n-challenge solving."
