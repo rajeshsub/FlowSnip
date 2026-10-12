@@ -27,3 +27,6 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+
+# Built PO token server (installer/build_pot_server.py)
+vendor/

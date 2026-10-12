@@ -18,6 +18,7 @@ from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
 from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .config import (
@@ -26,6 +27,7 @@ from .config import (
     VIDEO_FORMAT_SORT,
     video_quality_display_name,
 )
+from .pot_server import PotServer
 
 if TYPE_CHECKING:
     from .config import Config
@@ -87,6 +89,22 @@ def _get_js_runtime() -> dict | None:
     if _JS_RUNTIME is _UNSET:
         _JS_RUNTIME = _find_js_runtime()
     return _JS_RUNTIME  # type: ignore[return-value]
+
+
+def _node_path() -> str | None:
+    """Path of the detected Node.js runtime; the PO token server needs Node."""
+    runtime = _get_js_runtime() or {}
+    path: str | None = runtime.get("node", {}).get("path")
+    return path
+
+
+_YOUTUBE_DOMAINS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+
+
+def _is_youtube_url(url: str) -> bool:
+    """True for yt hosts and their subdomains (www, m, music)."""
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == d or host.endswith(f".{d}") for d in _YOUTUBE_DOMAINS)
 
 
 def _bundled_ffmpeg_dir() -> str | None:
@@ -289,7 +307,7 @@ class DownloadManager:
 
     def _extract_title(self, url: str) -> str:
         """Extract video title. Returns '__error__:message' on failure."""
-        # Attempt 1: browser cookies (includes PO token - best for yt)
+        # Attempt 1: browser cookies (signed in, so restricted videos resolve)
         if self.config.download.cookies_from_browser:
             try:
                 opts: dict[str, Any] = {
@@ -353,6 +371,11 @@ class DownloadManager:
 
         # Background thread for queue management
         self.queue_thread: threading.Thread | None = None
+
+        # PO token server for yt, started on first use (ADR 0004)
+        self.pot_server = PotServer(_node_path)
+        self._pot_hint_lock = threading.Lock()
+        self._pot_hint_logged = False
 
     def add_download(self, url: str) -> str:
         """Add a new download to the queue after validating the URL."""
@@ -845,6 +868,14 @@ class DownloadManager:
         base_opts["remote_components"] = ["ejs:github"]
         if _get_js_runtime():
             base_opts["js_runtimes"] = _get_js_runtime()
+        # Without a PO token, videos requiring login are capped far below
+        # their best formats (ADR 0004).
+        if _is_youtube_url(download_item.url):
+            pot_url = self._po_token_server_url()
+            if pot_url:
+                base_opts["extractor_args"] = {
+                    "youtubepot-bgutilhttp": {"base_url": [pot_url]}
+                }
 
         if self.config.download.audio_only:
             base_opts["format"] = (
@@ -881,6 +912,24 @@ class DownloadManager:
             base_opts["ffmpeg_location"] = ffmpeg_dir
 
         return base_opts
+
+    def _po_token_server_url(self) -> str | None:
+        """The PO token server's URL; says once per session why there is none."""
+        url = self.pot_server.base_url()
+        if url is None:
+            with self._pot_hint_lock:
+                if self._pot_hint_logged:
+                    return None
+                self._pot_hint_logged = True
+            self._log(
+                f"No yt PO token ({self.pot_server.unavailable_reason}): "
+                "videos requiring login may download below their best quality."
+            )
+        return url
+
+    def close(self) -> None:
+        """Release session resources when the app exits."""
+        self.pot_server.stop()
 
     def _log(self, message: str) -> None:
         """Send a line to the activity log, if anyone is listening."""

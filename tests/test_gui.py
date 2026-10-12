@@ -1373,6 +1373,13 @@ def test_on_closing_normal():
     assert g.config.ui.window_height == 700
 
 
+def test_on_closing_stops_the_po_token_server():
+    g = _make_gui()
+    g.download_manager.active_downloads = {}
+    g.on_closing()
+    g.download_manager.close.assert_called_once()
+
+
 def test_on_closing_geometry_no_x():
     g = _make_gui()
     g.root.geometry.return_value = None

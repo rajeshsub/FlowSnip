@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "pillow>=12.3.0",
     "packaging>=25.0",
+    "bgutil-ytdlp-pot-provider==2.0.2",
 ]
 
 [project.scripts]

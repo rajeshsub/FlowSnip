@@ -35,6 +35,9 @@ FlowSnip is a GUI wrapper for [yt-dlp](https://github.com/yt-dlp/yt-dlp).
   - This applies to every site, and costs one extra request per video for each cookie source configured.
   - The activity log says when the modes differ, and warns if the finished file (checked with ffprobe) is below the selected resolution.
   - Playlists are not compared: they download through the first mode that can see the playlist.
+- **PO tokens for videos requiring login** - yt withholds its higher-quality streams from signed-in web clients unless each request carries a PO token, which browser cookies cannot supply. This matters for videos requiring login: without a token they download well below their best quality (360p for a video requiring login that offers 4K, in testing).
+  - FlowSnip ships the [bgutil](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) token provider and starts its local server (127.0.0.1 only) on the first yt download; it stops when FlowSnip closes.
+  - It needs **Node.js 22 or newer**. Without it, downloads continue at the best quality reachable without a token, and the activity log says why once per session.
 - **Audio-Only Downloads** - MP3 extraction with quality options (96-320 kbps)
 - **Queue Management** - Add, pause, resume, cancel, retry downloads
 - **Batch Processing** - Multiple URLs via copy-paste (newline separated)
@@ -55,7 +58,7 @@ On startup, FlowSnip displays a legal disclaimer dialog that users must acknowle
 
 ## Installation
 
-Pre-built installers are attached to every [GitHub Release](https://github.com/rajeshsub/FlowSnip/releases). Download the one for your platform - no Python or other prerequisites needed.
+Pre-built installers are attached to every [GitHub Release](https://github.com/rajeshsub/FlowSnip/releases). Download the one for your platform - no Python needed. Install [Node.js](https://nodejs.org) 22 or newer for full quality on yt videos requiring login (see PO tokens above).
 
 | Platform | File |
 |---|---|
@@ -99,7 +102,7 @@ Open **System Settings → Privacy & Security**, scroll down, and click **Open A
   - Fedora/RHEL: `sudo dnf install python3-tkinter`
   - Debian/Ubuntu: `sudo apt install python3-tk`
 - **ffmpeg** - Required: every video preset downloads separate video and audio streams and merges them with ffmpeg (ffprobe also verifies the result). Installer builds bundle it; from source, install it with your package manager (e.g. `sudo dnf install ffmpeg`, `sudo apt install ffmpeg`, `brew install ffmpeg`).
-- **Node.js** *(optional)* - Required only for bypassing yt-dlp's n-challenge rate-limiting on some sites (e.g. yt throttling). Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
+- **Node.js 22+ and npm** *(optional, recommended)* - Used for yt-dlp's n-challenge solving (avoids yt throttling) and to run the PO token server needed for full quality on yt videos requiring login. `make bootstrap` builds that server into `vendor/bgutil-server/` when Node.js and npm are on `PATH`. Install from [nodejs.org](https://nodejs.org) or via your system package manager. If Node.js is installed to a non-standard location, set `FLOWSNIP_NODE_PATH=/path/to/node` before launching.
 
 ### Quick Start (Recommended)
 
@@ -131,6 +134,9 @@ pip install uv
 
 # Sync dependencies
 uv sync
+
+# Build the PO token server (optional; needs Node.js 22+ and npm)
+uv run python installer/build_pot_server.py
 
 # Run the application
 uv run python -m flowsnip.main
@@ -222,10 +228,12 @@ FlowSnip/
 │   ├── download_manager.py     # Download queue processing
 │   ├── gui.py                  # GUI interface (CustomTkinter)
 │   ├── main.py                 # Application entry point
+│   ├── pot_server.py           # Local PO token server for yt (ADR 0004)
 │   └── updater.py              # Auto-update logic (FlowSnip + yt-dlp)
 ├── installer/                  # Packaging & distribution
 │   ├── FlowSnip.spec           # PyInstaller spec (all platforms)
 │   ├── pre_build.py            # Converts icon.png → .ico / .icns
+│   ├── build_pot_server.py     # Builds the pinned bgutil server into vendor/
 │   ├── macos/
 │   │   └── create_dmg.sh       # macOS DMG packaging script
 │   └── windows/
@@ -251,3 +259,5 @@ Contributions welcome! :-)
 ## License
 
 MIT License - see LICENSE file for details.
+
+Installer builds also bundle [bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider), which is licensed under GPL-3.0; its licence text ships in the installer's `bgutil-server` folder.

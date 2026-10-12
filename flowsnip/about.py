@@ -12,6 +12,7 @@ from yt_dlp.version import __version__ as ytdlp_version
 from . import __version__
 
 PROJECT_URL = "https://github.com/rajeshsub/FlowSnip"
+BGUTIL_URL = "https://github.com/Brainicism/bgutil-ytdlp-pot-provider"
 
 _UNKNOWN_VERSION = "unknown"
 
@@ -34,6 +35,11 @@ class AboutDialog(ctk.CTkToplevel):
             padx=40, pady=12
         )
         ctk.CTkLabel(self, text=PROJECT_URL).pack()
+        ctk.CTkLabel(
+            self,
+            text=f"Includes bgutil-ytdlp-pot-provider (GPL-3.0):\n{BGUTIL_URL}",
+            font=ctk.CTkFont(size=11),
+        ).pack(padx=40, pady=(12, 0))
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(pady=(16, 24))

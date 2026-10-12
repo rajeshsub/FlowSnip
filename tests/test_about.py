@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import customtkinter as ctk
 from yt_dlp.version import __version__ as YTDLP_VERSION
 
-from flowsnip.about import PROJECT_URL, AboutDialog
+from flowsnip.about import BGUTIL_URL, PROJECT_URL, AboutDialog
 
 
 def _build(version="1.2.3"):
@@ -30,6 +30,13 @@ def test_about_dialog_shows_flowsnip_and_ytdlp_versions():
 def test_about_dialog_shows_project_url():
     texts, _ = _build()
     assert PROJECT_URL in texts
+
+
+def test_about_dialog_credits_the_gpl_po_token_provider():
+    texts, _ = _build()
+    credit = next(t for t in texts if "bgutil-ytdlp-pot-provider" in t)
+    assert "GPL-3.0" in credit
+    assert BGUTIL_URL in credit
 
 
 def test_about_dialog_hides_unknown_version():
